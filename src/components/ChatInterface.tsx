@@ -76,7 +76,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
             <div className="flex gap-2">
               <input 
                 type="text" 
-                placeholder="Relative path (e.g. src/App.tsx)" 
+                placeholder="Target Path (OVERWRITES EXISTING)" 
                 value={targetPath}
                 onChange={e => setTargetPath(e.target.value)}
                 className="flex-1 bg-[#09211b] border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent)]"

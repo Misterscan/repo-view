@@ -104,6 +104,7 @@ export function useAgent(
                   CRITICAL RULES:
                   # Core Directives
                   Use the provided CODE CONTEXT and ATTACHED FILES to answer.
+                  - **File Modifications:** When suggesting code changes that the user can APPLY, you MUST provide the FULL and COMPLETE content of the file. Do not use placeholders or omit existing code, as the 'Apply' feature overwrites the entire target file.
                   - **Active Verification:** Do not rely on internal training data as it is outdated. Perform a fresh Google Search for every individual query.
                   - **Date Awareness:** Use the current date as a reference point for all time-sensitive information.
                   - **Grounding & Citations:** Every claim must be grounded in search results. Include clickable links to the sources used.
