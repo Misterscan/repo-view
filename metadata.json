@@ -1,0 +1,5 @@
+{
+  "name": "repoview",
+  "description": "Upload your repository documentation and view them in a clean, navigable interface. Includes a feature to review your repo robustly using Gemini 3.1 Flash.",
+  "requestFramePermissions": []
+}

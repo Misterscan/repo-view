@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  /* Theme: Neon Nature Fusion */
+  --bg-dark: #020d0a; /* Deepest Jungle Night */
+  --sidebar-bg: #061a15; /* Dark Foliage */
+  --border: #13382e; /* Sturdy Vine */
+
+  --accent: #00ff9d; /* Bioluminescent Green */
+  --accent-hover: #39ff14; /* Neon Sprout */
+  --accent-dim: rgba(0, 255, 157, 0.1);
+
+  --text-main: #e0f5ee; /* Moonlit Leaf */
+  --text-muted: #4d8070; /* Forest Mist */
+
+  --user-msg-bg: #0b2922; /* Fern Shadow */
+  --ai-msg-bg: #020d0a; /* Matches bg */
+
+  --ok: #39ff14; /* Safe Neon */
+  --warn: #ccff00; /* Warning Yellow */
+  --bad: #ff0055; /* Toxic Flower */
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--bg-dark)] text-[var(--text-main)] font-sans;
+  }
+}
+
+.jungle-grid {
+  background-image: 
+    radial-gradient(circle at 50% 10%, #061a15 0%, transparent 50%),
+    linear-gradient(0deg, rgba(0, 255, 157, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 40px 40px, 40px 40px;
+}
+
+/* Custom transitions and shadows from rag_improved.html */
+.neon-glow {
+  text-shadow: 0 0 8px rgba(0, 255, 157, 0.4);
+}
+
+.neon-border {
+  border-color: var(--border);
+  transition: all 0.2s ease;
+}
+
+.neon-border:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-dim);
+}
+
+.action-btn-jungle {
+  background: linear-gradient(135deg, #0b3d30 0%, #00995e 100%);
+  color: #e0f5ee;
+  border: 1px solid #00ff9d;
+  @apply rounded-lg font-semibold uppercase tracking-wider transition-all duration-200;
+}
+
+.action-btn-jungle:hover:not(:disabled) {
+  filter: brightness(1.2);
+  box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+}
+
+.action-btn-jungle:disabled {
+  @apply opacity-50 cursor-not-allowed;
+  background: #1a2e29;
+  border-color: #2c4f44;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #13382e;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}

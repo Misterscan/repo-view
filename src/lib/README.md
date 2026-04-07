@@ -1,0 +1,17 @@
+# Libraries & Utilities
+
+This layer provides essential services supporting UI actions, acting as the middleware bridging external logic patterns with the internal React hooks.
+
+## `db.ts`
+The persistent storage engine wrapping IndexedDB (via `idb`).
+- Handles complex `by-session` indexing to support multi-repository workspaces.
+- Uses `Blob` storage directly enabling lazy-loading for vast amounts of code and binary assets.
+
+## `gemini.ts`
+The wrapper and initialization layer for `@google/genai`.
+- Hosts our core math utilities including `cosineSimilarity` and lightweight `estimateTokens`.
+- Provides an `exponentialBackoff` safety wrapper logic for resilient API usage in rate-limited environments.
+- Manages MIME type inference needed for accurate API chunk-sorting and Google Files API operations.
+
+## `constants.ts` & `utils.ts`
+Standardized configurations, extension filtering arrays (`IGNORED_EXTS`), Tailwind class merging functionality (`cn()`), and other immutable logic blocks.
