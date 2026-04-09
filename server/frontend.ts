@@ -14,6 +14,13 @@ export async function attachFrontend(opts: {
 }) {
   const { isDev, rootDir, distDir, indexHtmlPath, app, httpServer } = opts;
 
+  const frontendRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   if (isDev) {
     const vite = await createViteServer({
       root: rootDir,
@@ -22,13 +29,6 @@ export async function attachFrontend(opts: {
         middlewareMode: true,
         hmr: { server: httpServer },
       },
-    });
-
-    const frontendRateLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 100,
-      standardHeaders: true,
-      legacyHeaders: false,
     });
 
     app.use(vite.middlewares);
@@ -56,7 +56,7 @@ export async function attachFrontend(opts: {
   }
 
   app.use(express.static(distDir));
-  app.get('*', (_req, res) => {
+  app.get('*', frontendRateLimiter, (_req, res) => {
     res.sendFile(path.join(distDir, 'index.html'));
   });
 }
