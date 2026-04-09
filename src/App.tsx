@@ -69,26 +69,40 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repoPath }),
     });
-    const data = await readApiResult<{ repoPath: string; files: { path: string; name: string; type: string; data: string }[] }>(response, 'Failed to import local repository');
 
-    if (!data.files.length) {
-      throw new Error('No importable files were found in that repository');
+    if (!response.ok) {
+      let msg = 'Failed to import local repository';
+      try {
+        const errJson = await response.json();
+        msg = errJson.error || msg;
+      } catch {
+        const text = await response.text();
+        msg = text || msg;
+      }
+      throw new Error(msg);
     }
 
-    const filesToUpload = data.files.map((file) => {
-      const binary = atob(file.data);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
+    const blob = await response.blob();
+    const zip = await JSZip.loadAsync(blob);
 
-      return {
-        path: file.path,
-        name: file.name,
-        type: file.type,
-        blob: new Blob([bytes], { type: file.type || getMimeType(file.name) }),
-      };
+    const filePromises: Promise<{ path: string; name: string; type: string; blob: Blob }>[] = [];
+    zip.forEach((relativePath, zipEntry) => {
+      if (zipEntry.dir) return;
+      filePromises.push(
+        zipEntry.async('blob').then(b => ({
+          path: relativePath,
+          name: relativePath.split('/').pop() || '',
+          type: b.type || getMimeType(relativePath.split('/').pop() || ''),
+          blob: b,
+        }))
+      );
     });
+
+    const filesToUpload = await Promise.all(filePromises);
+
+    if (!filesToUpload.length) {
+      throw new Error('No importable files were found in that repository');
+    }
 
     const sessionName = repoPath.split(/[\\/]/).filter(Boolean).pop() || `Import-${Date.now()}`;
     await createSessionFromImportedFiles(sessionName, filesToUpload);

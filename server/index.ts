@@ -12,6 +12,7 @@ import { registerGitHubRoutes } from './github';
 import { setupTerminal } from './terminal';
 import { attachFrontend } from './frontend';
 import { registerRepoRoutes } from './repo';
+import AdmZip from 'adm-zip';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,8 +32,11 @@ if (!devToken) {
 const app = express();
 const httpServer = createServer(app);
 
-const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', '__pycache__', 'venv', '.netlify', '.github', '.vercel']);
-const IGNORED_EXTS = ['.exe', '.dll', '.zip', '.tar.gz', '.pyc', '.log', 'env', '.env', 'logs', 'tmp', 'temp', 'package-lock.json', '.DS_Store', '.next'];
+const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', '__pycache__', 'venv', '.netlify', '.github', '.vercel', 'server_uploads']);
+const IGNORED_EXTS = [
+  '.exe', '.dmg', '.app', '.dll', '.zip', '.tar.gz', '.pyc', '.log', 'env', '.env', 'logs', 'tmp', 'temp', 'package-lock.json', '.DS_Store', '.next',
+  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.iso', '.bin', '.img', '.msi', '.deb', '.rpm'
+];
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -48,35 +52,7 @@ function shouldIgnoreImportPath(relativePath: string) {
   return IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
 }
 
-async function collectImportableFiles(baseDir: string, currentDir: string, results: Array<{ path: string; name: string; type: string; data: string }>) {
-  const entries = await fs.readdir(currentDir, { withFileTypes: true });
 
-  for (const entry of entries) {
-    const absolutePath = path.join(currentDir, entry.name);
-    const relativePath = path.relative(baseDir, absolutePath).replace(/\\/g, '/');
-
-    if (!relativePath || shouldIgnoreImportPath(relativePath)) {
-      continue;
-    }
-
-    if (entry.isDirectory()) {
-      await collectImportableFiles(baseDir, absolutePath, results);
-      continue;
-    }
-
-    if (!entry.isFile()) {
-      continue;
-    }
-
-    const buffer = await fs.readFile(absolutePath);
-    results.push({
-      path: relativePath,
-      name: entry.name,
-      type: '',
-      data: buffer.toString('base64'),
-    });
-  }
-}
 
 app.post('/api/write-file', async (req, res) => {
   try {
@@ -137,16 +113,49 @@ app.post('/api/import-local-repo', async (req, res) => {
       return;
     }
 
-    const files: Array<{ path: string; name: string; type: string; data: string }> = [];
-    await collectImportableFiles(fullPath, fullPath, files);
+    const zip = new AdmZip();
 
-    json(res, 200, {
-      repoPath: fullPath,
-      files,
-    });
+    async function collectZipFiles(baseDir: string, currentDir: string) {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const absolutePath = path.join(currentDir, entry.name);
+        const relativePath = path.relative(baseDir, absolutePath).replace(/\\/g, '/');
+
+        if (!relativePath || shouldIgnoreImportPath(relativePath)) {
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          await collectZipFiles(baseDir, absolutePath);
+          continue;
+        }
+
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        const fileStat = await fs.stat(absolutePath);
+        if (fileStat.size > 25 * 1024 * 1024) { // Ignore gigantic files over 25MB
+          continue; 
+        }
+
+        const folderNameInZip = path.dirname(relativePath).replace(/\\/g, '/');
+        const zipDir = folderNameInZip === '.' ? '' : folderNameInZip;
+        zip.addLocalFile(absolutePath, zipDir);
+      }
+    }
+
+    await collectZipFiles(fullPath, fullPath);
+
+    const buffer = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('X-Repo-Path', encodeURIComponent(fullPath));
+    res.status(200).send(buffer);
   } catch (error: any) {
     console.error('Local repo import error:', error);
-    json(res, 500, { error: `Failed to import local repository: ${error.message}` });
+    if (!res.headersSent) {
+      json(res, 500, { error: `Failed to import local repository: ${error.message}` });
+    }
   }
 });
 
@@ -163,6 +172,71 @@ setupTerminal(httpServer, rootDir, devToken);
 
 await attachFrontend({ isDev, rootDir, distDir, indexHtmlPath, app, httpServer });
 
-httpServer.listen(port, () => {
-  console.log(`[repoview] Server listening on http://localhost:${port} (${isDev ? 'dev' : 'prod'})`);
+function startServer(startPort: number, attempts = 5) {
+  const tryPort = startPort;
+
+  const onError = (err: any) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.warn(`[repoview] Port ${tryPort} in use.`);
+      if (attempts > 0) {
+        const nextPort = tryPort + 1;
+        console.log(`[repoview] Trying port ${nextPort}...`);
+        // slight delay before retrying to give OS time to free sockets
+        setTimeout(() => startServer(nextPort, attempts - 1), 200);
+        return;
+      }
+      console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
+      console.error(`[repoview] To free the port, run (Windows):
+  netstat -ano | findstr :3000
+  taskkill /PID <pid> /F
+or (PowerShell):
+  Get-Process -Id <pid> | Stop-Process
+or restart your machine.`);
+      process.exit(1);
+    }
+
+    console.error('[repoview] Server error:', err);
+    process.exit(1);
+  };
+
+  httpServer.once('error', onError);
+  httpServer.listen(tryPort, () => {
+    httpServer.removeListener('error', onError);
+    console.log(`[repoview] Server listening on http://localhost:${tryPort} (${isDev ? 'dev' : 'prod'})`);
+  });
+}
+
+startServer(port);
+
+// Graceful shutdown helpers so Ctrl+C reliably stops the running server
+function shutdown(reason?: string) {
+  try {
+    console.log(`[repoview] Shutting down${reason ? ` (${reason})` : ''}...`);
+    // stop accepting new connections
+    httpServer.close(() => {
+      console.log('[repoview] HTTP server closed');
+      process.exit(0);
+    });
+
+    // Force exit if close doesn't complete in time
+    const t = setTimeout(() => {
+      console.error('[repoview] Shutdown timed out — forcing exit');
+      process.exit(1);
+    }, 5000);
+    if (typeof t === 'object' && typeof (t as any).unref === 'function') (t as any).unref();
+  } catch (err) {
+    console.error('[repoview] Error during shutdown:', err);
+    process.exit(1);
+  }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('uncaughtException', (err) => {
+  console.error('[repoview] Uncaught exception:', err);
+  shutdown('uncaughtException');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[repoview] Unhandled rejection:', reason);
+  shutdown('unhandledRejection');
 });
