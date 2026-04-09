@@ -52,15 +52,29 @@ function shouldIgnoreImportPath(relativePath: string) {
   return IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
 }
 
+function resolvePathUnderRoot(requestedPath: string): string {
+  const trimmed = String(requestedPath || '').trim();
+  if (!trimmed) {
+    throw new Error('filePath is required');
+  }
+  if (path.isAbsolute(trimmed)) {
+    throw new Error('Absolute paths are not allowed');
+  }
 
+  const resolved = path.resolve(rootDir, trimmed);
+  const rel = path.relative(rootDir, resolved);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('Path escapes the allowed root directory');
+  }
+
+  return resolved;
+}
 
 app.post('/api/write-file', async (req, res) => {
   try {
     const { filePath, content } = req.body || {};
-    const requested = filePath || 'temp_saved_file.txt';
-    
-    // Resolve absolute path or relative to rootDir
-    const fullPath = path.isAbsolute(requested) ? requested : path.resolve(rootDir, requested);
+    const requested = String(filePath || 'temp_saved_file.txt');
+    const fullPath = resolvePathUnderRoot(requested);
 
     const dir = path.dirname(fullPath);
     await fs.mkdir(dir, { recursive: true });
@@ -68,6 +82,10 @@ app.post('/api/write-file', async (req, res) => {
     json(res, 200, { success: true, path: fullPath });
   } catch (error: any) {
     console.error('File write error:', error);
+    if (error?.message === 'filePath is required' || error?.message === 'Absolute paths are not allowed' || error?.message === 'Path escapes the allowed root directory') {
+      json(res, 400, { error: error.message });
+      return;
+    }
     json(res, 500, { error: `Failed to write file: ${error.message}` });
   }
 });
@@ -80,7 +98,7 @@ app.post('/api/read-file', async (req, res) => {
       return;
     }
 
-    const fullPath = path.isAbsolute(requested) ? requested : path.resolve(rootDir, requested);
+    const fullPath = resolvePathUnderRoot(requested);
 
     try {
       const content = await fs.readFile(fullPath, 'utf8');
@@ -94,6 +112,10 @@ app.post('/api/read-file', async (req, res) => {
     }
   } catch (error: any) {
     console.error('File read error:', error);
+    if (error?.message === 'filePath is required' || error?.message === 'Absolute paths are not allowed' || error?.message === 'Path escapes the allowed root directory') {
+      json(res, 400, { error: error.message });
+      return;
+    }
     json(res, 500, { error: `Failed to read file: ${error.message}` });
   }
 });
