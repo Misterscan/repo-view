@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 
 import { createVerifyApiAuth, json } from './auth';
 import { registerGeminiRoutes } from './gemini';
@@ -32,6 +33,13 @@ if (!devToken) {
 const app = express();
 const httpServer = createServer(app);
 
+const fileOpsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', '__pycache__', 'venv', '.netlify', '.github', '.vercel', 'server_uploads']);
 const IGNORED_EXTS = [
   '.exe', '.dmg', '.app', '.dll', '.zip', '.tar.gz', '.pyc', '.log', 'env', '.env', 'logs', 'tmp', 'temp', 'package-lock.json', '.DS_Store', '.next',
@@ -54,7 +62,7 @@ function shouldIgnoreImportPath(relativePath: string) {
 
 
 
-app.post('/api/write-file', async (req, res) => {
+app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
   try {
     const { filePath, content } = req.body || {};
     const requested = filePath || 'temp_saved_file.txt';
@@ -72,7 +80,7 @@ app.post('/api/write-file', async (req, res) => {
   }
 });
 
-app.post('/api/read-file', async (req, res) => {
+app.post('/api/read-file', fileOpsLimiter, async (req, res) => {
   try {
     const requested = String(req.body?.filePath || '').trim();
     if (!requested) {
