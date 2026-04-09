@@ -92,7 +92,7 @@ export function registerRepoRoutes(app: Express, rootDir: string) {
   });
   
     // Persist zip and extract into server-side session
-    app.post('/api/repo/upload', upload.single('file'), async (req: Request, res: Response) => {
+    app.post('/api/repo/upload', repoMutationLimiter, upload.single('file'), async (req: Request, res: Response) => {
       try {
         if (!req.file) {
           res.status(400).json({ error: 'zip file required in field `file`' });
