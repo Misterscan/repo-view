@@ -3,7 +3,7 @@ build/
 dist/
 coverage/
 .DS_Store
-*.log
+logs/*.log
 .env*
 !.env.example
 package-lock.json

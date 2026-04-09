@@ -1,0 +1,18 @@
+<svg width="720" height="280" viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#edf4ff" />
+      <stop offset="100%" stop-color="#d7e6ff" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="720" height="280" fill="url(#bg)" />
+  <rect x="40" y="90" width="180" height="90" rx="10" fill="#ffffff" stroke="#214a8a" />
+  <rect x="270" y="90" width="180" height="90" rx="10" fill="#ffffff" stroke="#214a8a" />
+  <rect x="500" y="90" width="180" height="90" rx="10" fill="#ffffff" stroke="#214a8a" />
+  <text x="130" y="140" text-anchor="middle" font-family="Segoe UI" font-size="16" fill="#18345f">Frontend</text>
+  <text x="360" y="140" text-anchor="middle" font-family="Segoe UI" font-size="16" fill="#18345f">Express API</text>
+  <text x="590" y="140" text-anchor="middle" font-family="Segoe UI" font-size="16" fill="#18345f">Storage</text>
+  <line x1="220" y1="135" x2="270" y2="135" stroke="#18345f" stroke-width="2" />
+  <line x1="450" y1="135" x2="500" y2="135" stroke="#18345f" stroke-width="2" />
+  <text x="360" y="40" text-anchor="middle" font-family="Segoe UI" font-size="20" fill="#122542">Repodoc Demo Architecture</text>
+</svg>

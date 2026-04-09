@@ -7,6 +7,7 @@ export interface RepoSession {
   timestamp: number;
   uploadedUris: { uri: string, name: string, mimeType: string, size?: number }[];
   chunksCount: number;
+  serverUploadSessionId?: string;
 }
 
 interface RepoDocDB extends DBSchema {
@@ -200,6 +201,15 @@ export async function updateSessionUris(sessionId: string, uris: { uri: string, 
   const session = await db.get('repositories', sessionId);
   if (session) {
     session.uploadedUris = uris;
+    await db.put('repositories', session);
+  }
+}
+
+export async function updateSessionServerUploadId(sessionId: string, serverUploadSessionId: string) {
+  const db = await getDB();
+  const session = await db.get('repositories', sessionId);
+  if (session) {
+    session.serverUploadSessionId = serverUploadSessionId;
     await db.put('repositories', session);
   }
 }

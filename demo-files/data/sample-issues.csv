@@ -1,0 +1,6 @@
+id,title,severity,status,owner
+101,Terminal session dropped,high,open,alex
+102,Diff preview misaligned,medium,in_progress,mina
+103,GitHub panel loading delay,low,open,sam
+104,Session index stale after reupload,high,open,ivy
+105,Token estimation mismatch,medium,resolved,leo

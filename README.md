@@ -1,24 +1,53 @@
-# repoview: Repodoc Viewer & Coding Agent Interface 🚀
+# repoview: Repodoc Viewer and Coding Agent Interface
 
-Welcome to **repoview**—a high-performance, persistent, and bi-directional AI coding interface designed to radically accelerate how you understand, debug, and modify complex codebases.
+repoview is a local-first coding workspace for exploring repositories, chatting with indexed code, and applying changes directly from the UI.
 
-Built as a sleek React & Vite application, **repoview** transforms a local repository into an interactive multimodal knowledge base. It leverages IndexedDB for privacy-first local storage, Web Workers for smooth performance, and the Gemini API for robust intelligence.
+It combines a React + Vite frontend with an Express API, IndexedDB-backed local context, optional GitHub inspection tools, and Gemini-powered assistance.
+
+## Demo Screenshot
+
+![repoview demo](docs/media/repoview-demo.png)
+
+---
+
+## Feature Snapshot
+
+- GitHub inspection panel for branch status, PRs, issues, and Actions runs.
+- Persistent terminal over WebSocket for stateful local command execution.
+- Repo diff and compare workflows directly in the interface.
+- Session indexing with local embeddings and fast repository-aware retrieval.
+
+![repoview demo 2](docs/media/repoview-demo-2.png)
+
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart TD
+    A[Frontend: React + Vite UI] --> B[Express API]
+    B --> C[Repo upload pipeline]
+    B --> D[GitHub integration]
+    B --> E[Gemini integration]
+    A <--> F[IndexedDB local store]
+    B <--> G[server_uploads session data]
+```
 
 ---
 
 ## ✨ Key Features
 
 ### 🧠 Agentic RAG & Multimodal Intelligence
-*   **Intelligent Code Search:** Instantly chat with your codebase using Retrieval-Augmented Generation (RAG).
+*   **Intelligent Code Search:** Chat with your codebase using Retrieval-Augmented Generation (RAG).
 *   **Web Worker Acceleration:** Embeddings and cosine similarity calculations are processed in the background off the main thread, keeping the UI at 60fps.
-*   **Privacy-First Multimodal Support:** Images and videos are tracked locally. When you ask questions about an image, the application fetches the raw binary from local IndexedDB, converts it to Base64, and dynamically injects it into Gemini's context window. Your media assets are **never** synced to persistent cloud storage.
+*   **Privacy-First Multimodal Support:** Images are tracked locally. When you ask questions about an image, the application fetches the raw binary from local IndexedDB, converts it to Base64, and dynamically injects it into Gemini's context window. Your media assets are **never** synced to persistent cloud storage.
 *   **Context Budgeting System:** Automatically prioritizes critical architectural files (like entry points and `package.json`) to prevent context overflow without failing silently.
 *   **Live Token Estimation UI:** See your draft prompt size and the full assembled AI context token size directly in the chat interface.
 
 ### 💻 Bi-Directional Filesystem Execution
 *   **1-Click Apply:** Found a fix in the chat? Hover over the AI-generated code block, preview a diff against the current file, and then apply the overwrite directly to your local disk.
-*   **Server-Side Repo Syncing:** Upload project directories as zip payloads. The Node.js backend (`adm-zip`) extracts, hashes files, and provides persistent server-side sessions perfectly syncing your frontend RAG with backend code generation.
-*   **Granular Memory Control:** Total command over conversational context. Hover over any chat message to individually delete specific turns from the AI's context window.
+*   **Server-Side Repo Syncing:** Upload project directories as zip payloads. The Node.js backend (`adm-zip`) extracts, hashes files, and provides persistent server-side sessions that keep frontend RAG and backend code generation in sync.
+*   **Granular Memory Control:** Manage conversational context turn-by-turn. Hover over any chat message to remove specific turns from the AI context window.
 *   **GitHub Integration:** Search your GitHub repositories, clone one directly into a local destination folder with live progress output, then inspect branch state, create or switch branches, commit, pull, push, review changed-file diffs, browse open pull requests and issues, and inspect recent GitHub Actions runs from the sidebar.
 
 ### 🖥️ Persistent Shell Session
@@ -26,7 +55,7 @@ Built as a sleek React & Vite application, **repoview** transforms a local repos
 *   **Seamless Integration:** Minimize or maximize the shell directly above your workflow—perfect for testing the code changes you just applied through the UI.
 
 ### 📁 Advanced File Visualization
-*   **Code Highlights & Markdown:** Premium dark-themed syntax highlighting for all major languages.
+*   **Code Highlights & Markdown:** Dark-themed syntax highlighting for major languages.
 *   **Live Preview Matrix:**
     *   **Images & Video:** Native rendering directly within the viewer.
     *   **Interactive HTML Sandbox:** One-click toggle between HTML source code and a live rendered preview iframe.
@@ -115,7 +144,7 @@ npm run dev
 
 #### 5. Access
 Open your browser and navigate to `http://localhost:3000`. 
-Upload your project directory to initialize a pristine RAG session and begin your agentic workflow!
+Upload your project directory to initialize a new RAG session and begin working.
 
 ### Production-style Local Run
 Build the client bundle and start the Express server serving `dist/`:
@@ -125,15 +154,47 @@ npm run build
 npm run start
 ```
 
+### Troubleshooting (PowerShell)
+
+If you see this warning in an embedded terminal:
+
+`Cannot load PSReadline module. Console is running without PSReadLine.`
+
+This warning is usually non-blocking, so you can continue using the app while applying the fix below.
+
+Use a host check in your PowerShell profile so `PSReadLine` only loads in supported hosts:
+
+```powershell
+if ($Host.Name -eq "ConsoleHost") {
+    Import-Module PSReadLine -ErrorAction SilentlyContinue
+}
+```
+
+If needed, reinstall the module:
+
+```powershell
+Install-Module PSReadLine -Scope CurrentUser -Force -SkipPublisherCheck
+```
+
+---
+
+## Testing Demo Files
+
+1. Upload the contents of `demo-files/` to the interface.
+2. Use the suggested prompts in `demo-files/README.md` to explore the repository and test features.
+3. For diff and compare demos, also upload `demo-files-variant/` and use the suggested compare prompts in `demo-files-variant/README.md`.
+4. Compare the two versions by selecting both sessions in the interface to see how the architecture and risk profiles evolved.
+5. Use the GitHub panel to inspect the `demo-files` repository status, check for open issues, and view recent workflow runs.
+
 ---
 
 ## 💡 Workflow Concepts
 
-1. **Index & Understand**: Open a large repo. Let **repoview** index the text and media automatically. Use "Full Review" to get a bird's-eye architectural breakdown.
+1. **Index & Understand**: Open a large repo. Let **repoview** index text and media automatically. Use "Full Review" to get a high-level architectural breakdown.
 2. **Diagnose & Plan**: Chat with the UI to locate bugs. The model generates code to fix issues based solely on the grounded local context.
-3. **Execute & Test**: Click **Apply** on the generated code blocks. Open the internal persistent terminal, kick off your test suite, and iterate fast.
+3. **Execute & Test**: Click **Apply** on generated code blocks. Open the internal persistent terminal, run your test suite, and iterate.
 
 ---
 
-*Engineered with ⚡ using React, Vite, and Google Gemini.*
-*Warning: Bi-directional filesystem writes are fundamentally powerful. Use carefully within managed version-control environments!*
+Built with React, Vite, and Google Gemini.
+Warning: Bi-directional filesystem writes can make direct local changes. Use with version control.

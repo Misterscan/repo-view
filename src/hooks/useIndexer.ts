@@ -4,10 +4,12 @@ import { CONFIG, IGNORED_DIRS, IGNORED_EXTS } from '../lib/constants';
 import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
 import { 
   getSessions, 
+  getSession,
   getSessionFiles, 
   getSessionFileContent, 
   getSessionEmbeddings, 
   createSession, 
+  deleteSession,
   saveSessionFiles, 
   saveSessionEmbeddings, 
   updateSessionUris, 
@@ -70,6 +72,39 @@ export function useIndexer() {
     setDb(sDb);
     setUploadedUris(s?.uploadedUris || []);
     setIndexState(sDb.length > 0 ? `Ready (${sDb.length} chunks)` : 'Not Indexed');
+  };
+
+  const deleteSessionById = async (id: string) => {
+    const session = await getSession(id);
+    const serverUploadSessionId = session?.serverUploadSessionId;
+
+    if (serverUploadSessionId) {
+      try {
+        await fetch(`/api/repo/upload-session/${encodeURIComponent(serverUploadSessionId)}`, {
+          method: 'DELETE',
+        });
+      } catch (error) {
+        console.warn('Server upload cleanup failed', error);
+      }
+    }
+
+    await deleteSession(id);
+    const remaining = await getSessions();
+    setSessions(remaining);
+
+    if (currentSessionId !== id) return;
+
+    if (remaining.length > 0) {
+      const fallback = remaining[remaining.length - 1];
+      await loadSession(fallback.id);
+      return;
+    }
+
+    setCurrentSessionId(null);
+    setFiles([]);
+    setDb([]);
+    setUploadedUris([]);
+    setIndexState('Ready');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,7 +195,7 @@ export function useIndexer() {
 
         // Mime check if valid for embedding
         const isEmbeddable = (mime.startsWith('text/') || mime === 'application/json') && blobText.length < CONFIG.maxEmbeddingBytes;
-        const isMedia = mime.startsWith('image/') || mime.startsWith('video/');
+        const isMedia = mime.startsWith('image/');
 
         // 1. Upload to Files API (Text only)
         if (blobText && !isMedia) {
@@ -214,6 +249,7 @@ export function useIndexer() {
     indexState,
     db,
     uploadedUris,
+    deleteSessionById,
     handleFileUpload,
     handleReupload,
     uploadFiles,

@@ -17,6 +17,28 @@ function isIgnoredPath(p: string) {
 }
 
 export function registerRepoRoutes(app: Express, rootDir: string) {
+  app.delete('/api/repo/upload-session/:sessionId', async (req: Request, res: Response) => {
+    try {
+      const sessionIdRaw = String(req.params.sessionId || '').trim();
+      if (!/^\d+$/.test(sessionIdRaw)) {
+        res.status(400).json({ error: 'Invalid sessionId' });
+        return;
+      }
+
+      const uploadsDir = path.join(rootDir, 'server_uploads');
+      const extractDir = path.join(uploadsDir, sessionIdRaw);
+      const zipPath = path.join(uploadsDir, `${sessionIdRaw}.zip`);
+
+      await fs.rm(extractDir, { recursive: true, force: true });
+      await fs.rm(zipPath, { force: true });
+
+      res.json({ ok: true, sessionId: sessionIdRaw });
+    } catch (error: any) {
+      console.error('Repo upload session delete error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete upload session' });
+    }
+  });
+
   app.post('/api/repo/compare', upload.single('file'), async (req: Request, res: Response) => {
     try {
       if (!req.file) {

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Bot, Code2, FolderSync, Loader2, Search, History, Database, Upload, GitBranch, RefreshCw, AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bot, Code2, FolderSync, Loader2, Search, History, Database, Upload, GitBranch, RefreshCw, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { FileNode, GitChangedFile, GitHubInspection, GitHubRepoSearchResult } from '../types';
 import { FileTreeItem } from './FileTree';
 import { RepoSession } from '../lib/db';
@@ -40,6 +40,7 @@ interface SidebarProps {
   sessions: RepoSession[];
   currentSessionId: string | null;
   onLoadSession: (id: string) => void;
+  onDeleteSession: (id: string) => Promise<void>;
   onReupload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onUploadRepoZip: (file: File | null) => void;
   onUploadRepoFolder: (files: FileList | null) => void;
@@ -77,6 +78,7 @@ export function Sidebar({
   sessions, 
   currentSessionId, 
   onLoadSession,
+  onDeleteSession,
   onToggleTerminal,
   terminalActive,
   githubRepoPath,
@@ -357,6 +359,19 @@ export function Sidebar({
                 onClick={() => { onLoadSession(s.id); setShowSessions(false); }}
                 className={cn("p-3 rounded-lg border cursor-pointer transition-all hover:border-[var(--accent)] group relative", s.id === currentSessionId ? "bg-[var(--accent)]/10 border-[var(--accent)]" : "bg-black/20 border-white/5")}
               >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const ok = window.confirm(`Delete session "${s.name}" and its indexed cache?`);
+                    if (!ok) return;
+                    void onDeleteSession(s.id);
+                  }}
+                  className="absolute right-2 top-2 rounded border border-transparent p-1 text-[var(--text-muted)] opacity-0 transition group-hover:opacity-100 hover:border-[var(--bad)]/40 hover:text-[var(--bad)]"
+                  title="Delete session"
+                  aria-label={`Delete session ${s.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
                 <div className="text-[0.7rem] font-bold uppercase text-[var(--text-main)] mb-1 truncate pr-6">{s.name}</div>
                 <div className="flex items-center gap-3 text-[0.55rem] text-[var(--text-muted)] font-mono">
                   <span>{new Date(s.timestamp).toLocaleDateString()}</span>

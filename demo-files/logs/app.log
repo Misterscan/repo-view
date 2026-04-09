@@ -1,0 +1,6 @@
+2026-04-08T10:15:22Z INFO session=alpha indexed_files=312 duration_ms=4821
+2026-04-08T10:16:03Z WARN session=alpha token_budget_near_limit used=7412 limit=8000
+2026-04-08T10:16:44Z INFO session=alpha terminal_ws_connected=true
+2026-04-08T10:18:17Z ERROR session=alpha github_panel status=403 reason=insufficient_token_scope
+2026-04-08T10:18:59Z INFO session=alpha diff_preview_generated files=4
+2026-04-08T10:20:41Z ERROR session=alpha write_apply_failed path=src/main.ts reason=conflict

@@ -6,7 +6,7 @@ import { ChatInterface } from './components/ChatInterface';
 import { Terminal } from './components/Terminal';
 import { useIndexer } from './hooks/useIndexer';
 import { useAgent } from './hooks/useAgent';
-import { getSessionFileBlob, getSessionFileContent, getSessionFileMetas, createSession } from './lib/db';
+import { getSessionFileBlob, getSessionFileContent, getSessionFileMetas, createSession, updateSessionServerUploadId } from './lib/db';
 import { getMimeType } from './lib/gemini';
 import { readApiResult } from './lib/api';
 import { IGNORED_DIRS, IGNORED_EXTS } from './lib/constants';
@@ -46,6 +46,7 @@ export default function App() {
     indexState,
     db,
     uploadedUris,
+    deleteSessionById,
     handleFileUpload,
     handleReupload,
     uploadFiles,
@@ -281,6 +282,7 @@ export default function App() {
         sessions={sessions}
         currentSessionId={currentSessionId}
         onLoadSession={loadSession}
+        onDeleteSession={deleteSessionById}
         onToggleTerminal={() => setShowTerminal(!showTerminal)}
         terminalActive={showTerminal}
         githubRepoPath={githubRepoPath}
@@ -339,7 +341,11 @@ export default function App() {
                   form.append('clientHashes', JSON.stringify(clientHashes));
 
                   const resp = await fetch('/api/repo/upload', { method: 'POST', body: form });
-                  const data = await readApiResult<{ changedFiles?: { path: string; data: string }[] }>(resp, 'Upload failed');
+                  const data = await readApiResult<{ sessionId?: string; changedFiles?: { path: string; data: string }[] }>(resp, 'Upload failed');
+
+                  if (data.sessionId) {
+                    await updateSessionServerUploadId(currentSessionId, data.sessionId);
+                  }
 
                   const toUpload: { path: string; name: string; type: string; blob: Blob }[] = [];
                   for (const f of data.changedFiles || []) {
