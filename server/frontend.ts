@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 
 export async function attachFrontend(opts: {
@@ -23,9 +24,16 @@ export async function attachFrontend(opts: {
       },
     });
 
+    const frontendRateLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 100,
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+
     app.use(vite.middlewares);
 
-    app.use(async (req, res, next) => {
+    app.use(frontendRateLimiter, async (req, res, next) => {
       if (req.originalUrl.startsWith('/api/')) {
         next();
         return;
