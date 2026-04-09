@@ -5,8 +5,15 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { IGNORED_DIRS, IGNORED_EXTS } from '../src/lib/constants';
 import { promises as fs } from 'fs';
+import rateLimit from 'express-rate-limit';
 
 const upload = multer({ storage: multer.memoryStorage() });
+const repoMutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function isIgnoredPath(p: string) {
   const lower = p.toLowerCase();
@@ -17,7 +24,7 @@ function isIgnoredPath(p: string) {
 }
 
 export function registerRepoRoutes(app: Express, rootDir: string) {
-  app.delete('/api/repo/upload-session/:sessionId', async (req: Request, res: Response) => {
+  app.delete('/api/repo/upload-session/:sessionId', repoMutationLimiter, async (req: Request, res: Response) => {
     try {
       const sessionIdRaw = String(req.params.sessionId || '').trim();
       if (!/^\d+$/.test(sessionIdRaw)) {
