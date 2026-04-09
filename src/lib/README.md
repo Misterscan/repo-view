@@ -11,7 +11,12 @@ The persistent storage engine wrapping IndexedDB (via `idb`).
 The wrapper and initialization layer for `@google/genai`.
 - Hosts our core math utilities including `cosineSimilarity` and lightweight `estimateTokens`.
 - Provides an `exponentialBackoff` safety wrapper logic for resilient API usage in rate-limited environments.
-- Manages MIME type inference needed for accurate API chunk-sorting and Google Files API operations.
+- Manages MIME type inference via embedded mapping functions needed for accurate API chunk-sorting and Google Files API operations perfectly aligning with `App.tsx` repository diff injections.
+
+## `api.ts`
+Standardized API interaction utility.
+- Provides robust response parsing (`readApiResult`, `readApiJson`) to ensure safe frontend-to-backend communication.
+- Handles edge cases where missing JSON or misconfigured endpoints return HTML, providing context-aware error messages.
 
 ## `constants.ts` & `utils.ts`
 Standardized configurations, extension filtering arrays (`IGNORED_EXTS`), Tailwind class merging functionality (`cn()`), and other immutable logic blocks.

@@ -2,7 +2,65 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bot, Loader2, Send, Trash2, CheckCircle2, AlertCircle, Save, X } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Message } from '../types';
+import { readApiError, readApiResult } from '../lib/api';
 import { cn } from '../lib/utils';
+
+type DiffLine = {
+  kind: 'same' | 'add' | 'remove';
+  text: string;
+  leftNumber: number | null;
+  rightNumber: number | null;
+};
+
+function buildLineDiff(previousText: string, nextText: string): DiffLine[] {
+  const left = previousText.split(/\r?\n/);
+  const right = nextText.split(/\r?\n/);
+  const dp = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+
+  for (let i = left.length - 1; i >= 0; i -= 1) {
+    for (let j = right.length - 1; j >= 0; j -= 1) {
+      dp[i][j] = left[i] === right[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const lines: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  let leftNumber = 1;
+  let rightNumber = 1;
+
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) {
+      lines.push({ kind: 'same', text: left[i], leftNumber, rightNumber });
+      i += 1;
+      j += 1;
+      leftNumber += 1;
+      rightNumber += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      lines.push({ kind: 'remove', text: left[i], leftNumber, rightNumber: null });
+      i += 1;
+      leftNumber += 1;
+    } else {
+      lines.push({ kind: 'add', text: right[j], leftNumber: null, rightNumber });
+      j += 1;
+      rightNumber += 1;
+    }
+  }
+
+  while (i < left.length) {
+    lines.push({ kind: 'remove', text: left[i], leftNumber, rightNumber: null });
+    i += 1;
+    leftNumber += 1;
+  }
+
+  while (j < right.length) {
+    lines.push({ kind: 'add', text: right[j], leftNumber: null, rightNumber });
+    j += 1;
+    rightNumber += 1;
+  }
+
+  return lines;
+}
 
 interface ChatInterfaceProps {
   messages: Message[];
@@ -11,6 +69,8 @@ interface ChatInterfaceProps {
   isThinking: boolean;
   selectedModel: string;
   setSelectedModel: (m: string) => void;
+  draftQueryTokens: number;
+  lastRequestTokens: number | null;
   indexState: string;
   useGrounding: boolean;
   setUseGrounding: (b: boolean) => void;
@@ -23,6 +83,36 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
   const [status, setStatus] = useState<'idle' | 'applying' | 'success' | 'error'>('idle');
   const [targetPath, setTargetPath] = useState('');
   const [showApply, setShowApply] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [isDiffLoading, setIsDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
+  const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
+  const nextText = String(children);
+
+  const previewDiff = async () => {
+    if (!targetPath) {
+      alert('Please specify a target path before previewing the diff.');
+      return;
+    }
+
+    setShowDiff(true);
+    setIsDiffLoading(true);
+    setDiffError(null);
+    try {
+      const response = await fetch('/api/read-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: targetPath }),
+      });
+      const data = await readApiResult<{ content?: string }>(response, 'Failed to read file');
+      setDiffLines(buildLineDiff(String(data?.content || ''), nextText));
+    } catch (error: any) {
+      setDiffLines([]);
+      setDiffError(error?.message || 'Failed to generate diff preview');
+    } finally {
+      setIsDiffLoading(false);
+    }
+  };
 
   const applyChange = async () => {
     if (!targetPath) {
@@ -34,12 +124,12 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
       const response = await fetch('/api/write-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: targetPath, content: String(children) }),
+        body: JSON.stringify({ filePath: targetPath, content: nextText }),
       });
-      if (!response.ok) throw new Error('Write failed');
+      if (!response.ok) await readApiError(response, 'Write failed');
       setStatus('success');
       setTimeout(() => setStatus('idle'), 3000);
-    } catch (e) {
+    } catch {
       setStatus('error');
       setTimeout(() => setStatus('idle'), 5000);
     }
@@ -69,18 +159,29 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
         <div className="mt-2 p-3 bg-black/40 border border-[var(--accent)]/30 rounded-lg animate-in slide-in-from-top-1 duration-200">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-[0.6rem] font-black uppercase text-[var(--accent)] tracking-widest">Apply to Filesystem</span>
+              <span className="text-[0.6rem] font-black uppercase text-[var(--accent)] tracking-widest">Apply to File (OVERWRITES EXISTING)</span>
               {status === 'success' && <div className="flex items-center gap-1 text-[var(--ok)] text-[0.6rem] font-bold"><CheckCircle2 className="w-3 h-3" /> APPLIED</div>}
               {status === 'error' && <div className="flex items-center gap-1 text-[var(--bad)] text-[0.6rem] font-bold"><AlertCircle className="w-3 h-3" /> FAILED</div>}
             </div>
             <div className="flex gap-2">
               <input 
                 type="text" 
-                placeholder="Target Path (OVERWRITES EXISTING)" 
+                placeholder="Target Path [eg. C:/path/to/file]" 
                 value={targetPath}
-                onChange={e => setTargetPath(e.target.value)}
+                onChange={e => {
+                  setTargetPath(e.target.value);
+                  setShowDiff(false);
+                  setDiffError(null);
+                }}
                 className="flex-1 bg-[#09211b] border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent)]"
               />
+              <button 
+                onClick={previewDiff}
+                disabled={isDiffLoading}
+                className="border border-[var(--border)] px-3 py-1 rounded text-[0.6rem] font-black uppercase hover:border-[var(--accent)] disabled:opacity-50"
+              >
+                {isDiffLoading ? 'Loading...' : 'Preview Diff'}
+              </button>
               <button 
                 onClick={applyChange}
                 disabled={status === 'applying'}
@@ -89,6 +190,39 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
                 Confirm
               </button>
             </div>
+            {showDiff && (
+              <div className="mt-2 rounded-lg border border-[var(--border)] bg-[#020a08] overflow-hidden">
+                <div className="px-3 py-2 border-b border-[var(--border)] text-[0.58rem] uppercase font-black tracking-widest text-[var(--text-muted)]">
+                  Diff Preview
+                </div>
+                {diffError ? (
+                  <div className="px-3 py-3 text-[0.65rem] text-[var(--bad)]">{diffError}</div>
+                ) : isDiffLoading ? (
+                  <div className="px-3 py-3 text-[0.65rem] text-[var(--text-muted)]">Loading current file...</div>
+                ) : (
+                  <div className="max-h-64 overflow-auto font-mono text-[0.65rem]">
+                    {diffLines.length === 0 ? (
+                      <div className="px-3 py-3 text-[var(--text-muted)]">No diff to show.</div>
+                    ) : diffLines.map((line, index) => (
+                      <div
+                        key={`${line.kind}-${index}`}
+                        className={cn(
+                          'grid grid-cols-[3rem_3rem_1.5rem_1fr] gap-2 px-3 py-0.5 whitespace-pre-wrap',
+                          line.kind === 'add' && 'bg-[rgba(0,255,157,0.08)] text-[var(--ok)]',
+                          line.kind === 'remove' && 'bg-[rgba(255,80,80,0.08)] text-[var(--bad)]',
+                          line.kind === 'same' && 'text-[var(--text-main)]/80'
+                        )}
+                      >
+                        <span className="opacity-40 text-right">{line.leftNumber ?? ''}</span>
+                        <span className="opacity-40 text-right">{line.rightNumber ?? ''}</span>
+                        <span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' '}</span>
+                        <span>{line.text || ' '}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -97,7 +231,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
 };
 
 export function ChatInterface({
-  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear
+  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear
 }: ChatInterfaceProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -200,6 +334,11 @@ export function ChatInterface({
             >
               <Trash2 className="w-3 h-3" /> Clear Buffer
             </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 text-[0.58rem] font-mono text-[var(--text-muted)]">
+            <span>Draft: ~{draftQueryTokens} tok</span>
+            <span>{lastRequestTokens !== null ? `${isThinking ? 'Sending' : 'Last send'}: ~${lastRequestTokens} tok` : 'Last send: -'}</span>
           </div>
         </div>
       </div>

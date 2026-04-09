@@ -1,4 +1,4 @@
-import { FileText, Send, Code2, Download, Image as ImageIcon, Video, File, Globe, Eye, Code } from 'lucide-react';
+import { FileText, Send, Code2, Download, Image as ImageIcon, Video, Globe, Eye, Code } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { FileNode } from '../types';
 import { useEffect, useState } from 'react';

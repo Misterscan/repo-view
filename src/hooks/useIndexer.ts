@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { ChunkDoc, ExtendedFile, FileNode } from '../types';
+import { useEffect } from 'react';
+import { ChunkDoc, ExtendedFile } from '../types';
 import { CONFIG, IGNORED_DIRS, IGNORED_EXTS } from '../lib/constants';
-import { ai, chunkText, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
+import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
 import { 
   getSessions, 
   getSessionFiles, 
@@ -11,8 +11,8 @@ import {
   saveSessionFiles, 
   saveSessionEmbeddings, 
   updateSessionUris, 
-  RepoSession,
 } from '../lib/db';
+import { useIndexerState } from '../store/appState';
 
 function isIgnored(file: ExtendedFile) {
   const path = file.webkitRelativePath || file.name;
@@ -24,15 +24,24 @@ function isIgnored(file: ExtendedFile) {
 }
 
 export function useIndexer() {
-  const [sessions, setSessions] = useState<RepoSession[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  
-  const [files, setFiles] = useState<FileNode[]>([]);
-  const [isIndexing, setIsIndexing] = useState(false);
-  const [indexProgress, setIndexProgress] = useState(0);
-  const [indexState, setIndexState] = useState<string>('Ready');
-  const [db, setDb] = useState<ChunkDoc[]>([]);
-  const [uploadedUris, setUploadedUris] = useState<{ uri: string, name: string, mimeType: string, size?: number }[]>([]);
+  const {
+    sessions,
+    setSessions,
+    currentSessionId,
+    setCurrentSessionId,
+    files,
+    setFiles,
+    isIndexing,
+    setIsIndexing,
+    indexProgress,
+    setIndexProgress,
+    indexState,
+    setIndexState,
+    db,
+    setDb,
+    uploadedUris,
+    setUploadedUris,
+  } = useIndexerState();
 
   // DB Load Sessions on Mount
   useEffect(() => {
@@ -56,7 +65,7 @@ export function useIndexer() {
     const sFiles = await getSessionFiles(id);
     const sDb = await getSessionEmbeddings(id);
     const s = (await getSessions()).find(x => x.id === id);
-    
+
     setFiles(sFiles);
     setDb(sDb);
     setUploadedUris(s?.uploadedUris || []);
@@ -84,11 +93,49 @@ export function useIndexer() {
     }));
     
     await saveSessionFiles(session.id, fileRecords);
-    
+
     setFiles(fileRecords.map(f => ({ name: f.name, path: f.path, type: f.type, isIndexed: f.isIndexed })));
     setIndexState('Not Indexed');
     setDb([]);
     setUploadedUris([]);
+  };
+
+  const handleReupload = async (sessionId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploaded = Array.from(e.target.files || []) as ExtendedFile[];
+    const valid = uploaded.filter(f => !isIgnored(f));
+    if (valid.length === 0) return;
+
+    // Do not create a new session; update existing session files
+    const fileRecords = valid.map(file => ({
+      path: file.webkitRelativePath || file.name,
+      name: file.name,
+      type: file.type,
+      blob: file,
+      isIndexed: false,
+    }));
+
+    await saveSessionFiles(sessionId, fileRecords);
+
+    // Refresh session view
+    await loadSession(sessionId);
+  };
+
+  const uploadFiles = async (sessionId: string, filesToUpload: { path: string; name: string; type: string; blob: Blob }[]) => {
+    if (!sessionId || filesToUpload.length === 0) return;
+    const fileRecords = filesToUpload.map(f => ({ path: f.path, name: f.name, type: f.type, blob: f.blob, isIndexed: false }));
+    await saveSessionFiles(sessionId, fileRecords);
+    await loadSession(sessionId);
+  };
+
+  const createSessionFromImportedFiles = async (sessionName: string, filesToUpload: { path: string; name: string; type: string; blob: Blob }[]) => {
+    const session = await createSession(sessionName || `Import-${Date.now()}`);
+    setCurrentSessionId(session.id);
+    setSessions(prev => [...prev, session]);
+    await uploadFiles(session.id, filesToUpload);
+    setIndexState('Not Indexed');
+    setDb([]);
+    setUploadedUris([]);
+    return session.id;
   };
 
   const startIndexing = async (onComplete: (uris: { uri: string, name: string, mimeType: string, size?: number }[], dbItems: ChunkDoc[]) => void, onError: (err: any) => void) => {
@@ -99,7 +146,6 @@ export function useIndexer() {
 
     const newDb: ChunkDoc[] = [];
     const newUris: { uri: string, name: string, mimeType: string, size?: number }[] = [];
-    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
 
     try {
       for (let i = 0; i < files.length; i++) {
@@ -110,7 +156,7 @@ export function useIndexer() {
         try {
           const contentStr = await getSessionFileContent(currentSessionId, fNode.path);
           if (contentStr) blobText = contentStr;
-        } catch(e) { }
+        } catch {}
 
         // Mime check if valid for embedding
         const isEmbeddable = (mime.startsWith('text/') || mime === 'application/json') && blobText.length < CONFIG.maxEmbeddingBytes;
@@ -121,7 +167,7 @@ export function useIndexer() {
           try {
             // Reconstruct a File for Gemini Upload
             const fileBlob = new File([blobText], fNode.name, { type: mime });
-            const uri = await uploadFileToGemini(fileBlob, apiKey, mime);
+            const uri = await uploadFileToGemini(fileBlob, mime);
             newUris.push({ uri, name: fNode.name, mimeType: mime, size: blobText.length });
             await updateSessionUris(currentSessionId, newUris);
           } catch (e) { console.warn("Files API error", e); }
@@ -131,28 +177,20 @@ export function useIndexer() {
         if (isEmbeddable && blobText) {
           const chunks = chunkText(blobText, CONFIG.chunkSize, fNode.name);
           for (const chunk of chunks) {
-            const res = await exponentialBackoff(() => ai.models.embedContent({
-              model: CONFIG.embedModel,
-              contents: [chunk]
-            }));
-            const vec = res.embeddings?.[0]?.values || [];
+            const [vec = []] = await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [chunk]));
             newDb.push({ text: chunk, vec, file: fNode.path });
           }
         } else if (isMedia) {
           // Index Media Metadata for Search
           const mediaRef = `[MEDIA_CONTENT]: ${fNode.name} in path ${fNode.path}`;
-          const res = await exponentialBackoff(() => ai.models.embedContent({
-            model: CONFIG.embedModel,
-            contents: [mediaRef]
-          }));
-          const vec = res.embeddings?.[0]?.values || [];
+          const [vec = []] = await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [mediaRef]));
           newDb.push({ text: mediaRef, vec, file: fNode.path, isMedia: true, mimeType: mime });
         }
         setIndexProgress(Math.round(((i + 1) / files.length) * 100));
       }
 
       await saveSessionEmbeddings(currentSessionId, newDb);
-      
+
       setDb(newDb);
       setUploadedUris(newUris);
       setIndexState(`Ready (${newDb.length} chunks)`);
@@ -177,6 +215,9 @@ export function useIndexer() {
     db,
     uploadedUris,
     handleFileUpload,
+    handleReupload,
+    uploadFiles,
+    createSessionFromImportedFiles,
     startIndexing,
   };
 }

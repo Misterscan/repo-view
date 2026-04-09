@@ -22,6 +22,7 @@ interface RepoDocDB extends DBSchema {
       name: string;
       type: string;
       blob: Blob;
+      hash?: string;
       isIndexed: boolean;
     };
     indexes: { 'by-session': string };
@@ -107,11 +108,30 @@ export async function deleteSession(id: string) {
 
 export async function saveSessionFiles(sessionId: string, files: { path: string; name: string; type: string; blob: Blob; isIndexed: boolean }[]) {
   const db = await getDB();
-  const tx = db.transaction('files', 'readwrite');
   for (const f of files) {
-    await tx.store.put({ ...f, sessionId });
+    // Compute hash FIRST, taking time outside any IDB transaction
+    let hash: string | undefined = undefined;
+    try {
+      const buf = await f.blob.arrayBuffer();
+      const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+      hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      // ignore hash errors
+    }
+
+    // Now open a fresh transaction per file so it doesn't timeout
+    const tx = db.transaction('files', 'readwrite');
+    try {
+      const key = [sessionId, f.path] as [string, string];
+      const existing = await tx.store.get(key as any);
+
+      const isIndexed = Boolean(existing?.isIndexed && existing?.hash && hash && existing.hash === hash);
+      await tx.store.put({ ...f, sessionId, hash, isIndexed });
+    } catch {
+      await tx.store.put({ ...f, sessionId });
+    }
+    await tx.done;
   }
-  await tx.done;
 }
 
 export async function getSessionFiles(sessionId: string): Promise<FileNode[]> {
@@ -122,7 +142,15 @@ export async function getSessionFiles(sessionId: string): Promise<FileNode[]> {
     name: f.name,
     type: f.type,
     isIndexed: f.isIndexed,
+    // expose hash if present for client-side comparisons
+    hash: (f as any).hash || undefined,
   } as FileNode));
+}
+
+export async function getSessionFileMetas(sessionId: string): Promise<{ path: string; name: string; type: string; hash?: string }[]> {
+  const db = await getDB();
+  const all = await db.getAllFromIndex('files', 'by-session', sessionId);
+  return all.map(f => ({ path: f.path, name: f.name, type: f.type, hash: (f as any).hash }));
 }
 
 export async function getSessionFileContent(sessionId: string, path: string): Promise<string | null> {

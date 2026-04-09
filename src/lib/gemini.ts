@@ -1,11 +1,107 @@
-import { GoogleGenAI } from '@google/genai';
+import { readApiError, readApiJson } from './api';
 
-// Initialize Gemini API (User should have this in .env or we use a fallback if provided in metadata)
-export const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '' });
+type GenerateContentRequest = {
+  model: string;
+  contents: unknown;
+  config?: unknown;
+};
+
+async function postJson<T>(url: string, payload: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    await readApiError(response, `Request failed with status ${response.status}`);
+  }
+
+  return readApiJson<T>(response);
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      resolve(result.split(',')[1] || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function embedTexts(model: string, contents: string[]): Promise<number[][]> {
+  const result = await postJson<{ embeddings?: { values?: number[] }[] }>('/api/gemini/embed', {
+    model,
+    contents,
+  });
+
+  return (result.embeddings || []).map(embedding => embedding.values || []);
+}
+
+export async function generateModelContent(request: GenerateContentRequest): Promise<string> {
+  const result = await postJson<{ text?: string }>('/api/gemini/generate', request);
+  return result.text || '';
+}
 
 export function chunkText(text: string, size: number, name: string) {
   const chunks: string[] = [];
-  let current = `// File: ${name}\n`;
+  const header = `// File: ${name}\n`;
+
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const codeExts = new Set(['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp']);
+
+  // Heuristic semantic splitter for code-like files: split on top-level declarations
+  if (codeExts.has(ext)) {
+    const blocks: string[] = [];
+    const boundaryRE = /(^\s*(?:export\s+)?(?:async\s+)?function\b)|(^\s*(?:export\s+)?class\b)|(^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?\(?\w*\)?\s*=>)|(^\s*#region\b)|(^\s*def\s+\w+\()/m;
+
+    // Walk the file and slice at boundaries
+    const lines = text.split('\n');
+    let currentBlockLines: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (boundaryRE.test(line) && currentBlockLines.length > 0) {
+        blocks.push(currentBlockLines.join('\n') + '\n');
+        currentBlockLines = [];
+      }
+      currentBlockLines.push(line);
+    }
+    if (currentBlockLines.length > 0) blocks.push(currentBlockLines.join('\n') + '\n');
+
+    // Assemble blocks into size-bounded chunks
+    let current = header;
+    for (const b of blocks) {
+      if (current.length + b.length > size) {
+        if (current.trim() !== header.trim()) {
+          chunks.push(current);
+          current = header + b;
+        } else {
+          // Single block larger than size — fall back to line splitting for this block
+          const subLines = b.split('\n');
+          for (const sl of subLines) {
+            if (current.length + sl.length + 1 > size) {
+              chunks.push(current);
+              current = header + sl + '\n';
+            } else {
+              current += sl + '\n';
+            }
+          }
+        }
+      } else {
+        current += b;
+      }
+    }
+    if (current.length > header.length) chunks.push(current);
+    if (chunks.length === 0) chunks.push(header + text);
+    return chunks;
+  }
+
+  // Fallback: line-based splitter for non-code files
+  let current = header;
   text.split("\n").forEach(line => {
     if (current.length + line.length > size) {
       chunks.push(current);
@@ -63,29 +159,12 @@ export function getMimeType(filename: string) {
   return ext ? (map[ext] || 'text/plain') : 'text/plain';
 }
 
-export async function uploadFileToGemini(file: File, apiKey: string, mimeType: string) {
-  const size = file.size;
-  const baseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-  const startResp = await fetch(`${baseUrl}?key=${apiKey}`, {
-    method: "POST",
-    headers: {
-      "X-Goog-Upload-Protocol": "resumable",
-      "X-Goog-Upload-Command": "start",
-      "X-Goog-Upload-Header-Content-Length": size.toString(),
-      "X-Goog-Upload-Header-Content-Type": mimeType,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ file: { display_name: file.name } })
+export async function uploadFileToGemini(file: File, mimeType: string) {
+  const result = await postJson<{ uri: string }>('/api/gemini/upload', {
+    name: file.name,
+    mimeType,
+    data: await fileToBase64(file),
   });
-  if (!startResp.ok) throw new Error("Upload start failed");
-  const uploadUrl = startResp.headers.get("x-goog-upload-url");
-  if (!uploadUrl) throw new Error("No upload URL returned");
-  const uploadResp = await fetch(uploadUrl, {
-    method: "POST",
-    headers: { "X-Goog-Upload-Command": "upload, finalize", "X-Goog-Upload-Offset": "0", "Content-Type": mimeType },
-    body: file
-  });
-  if (!uploadResp.ok) throw new Error("Upload failed");
-  const fileInfo = await uploadResp.json();
-  return fileInfo.file.uri;
+
+  return result.uri;
 }

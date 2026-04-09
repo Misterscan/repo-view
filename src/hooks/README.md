@@ -7,6 +7,7 @@ Manages the orchestration between the Chat UI, IndexedDB RAG database, and the G
 - **RAG Generation:** Responsible for communicating with `rag.worker.ts` to perform non-blocking cosine-similarity search.
 - **Multimodal Prompting:** Extracts inline media buffers from the UI selection and sends them natively to the Gemini API vision model.
 - **Architecture Auditing:** Implements the `startFullReview` behavior, which runs a context-safe budgeting pass to analyze an entire raw codebase.
+- **Token Estimation:** Calculates `char / 4` heuristics on draft input and the final requested payload context to update the UI on how large a request will be.
 
 ## `useIndexer.ts`
 Manages file parsing, chunking, embedding generation, and session states.

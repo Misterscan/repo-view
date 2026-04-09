@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Terminal as XTerm } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import 'xterm/css/xterm.css';
+// xterm and its addon are dynamically imported when the terminal is opened
 import { X, Maximize2, Minimize2, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -11,8 +9,8 @@ interface TerminalProps {
 
 export function Terminal({ onClose }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const xtermRef = useRef<any | null>(null);
+  const fitAddonRef = useRef<any | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [command, setCommand] = useState('');
@@ -21,69 +19,97 @@ export function Terminal({ onClose }: TerminalProps) {
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    const term = new XTerm({
-      cursorBlink: true,
-      fontSize: 12,
-      fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, "Courier New", monospace',
-      theme: {
-        background: '#020a08',
-        foreground: '#00ff9d',
-        cursor: '#00ff9d',
-        selectionBackground: 'rgba(0, 255, 157, 0.3)',
-      },
-    });
+    // Prepare scoped variables for cleanup
+    let term: any = null;
+    let ws: WebSocket | null = null;
+    let XTermCtor: any;
+    let FitAddonCtor: any;
+    let handleResize: (() => void) | null = null;
+    let isDisposed = false;
+    let initialFitTimer: number | null = null;
 
-    const fitAddon = new FitAddon();
-    fitAddonRef.current = fitAddon;
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    
-    // Ensure terminal is rendered before fitting
-    setTimeout(() => {
+    // Dynamically load xterm and fit addon and the CSS in an async function
+    (async () => {
       try {
-        fitAddon.fit();
+        await Promise.all([
+          import('xterm/css/xterm.css'),
+          import('xterm').then(mod => { XTermCtor = mod.Terminal || mod.default || mod; }),
+          import('xterm-addon-fit').then(mod => { FitAddonCtor = mod.FitAddon || mod.default || mod; }),
+        ]);
       } catch (e) {
-        console.warn('Initial terminal fit failed', e);
+        console.error('Failed to load xterm or addons:', e);
+        return;
       }
-    }, 100);
 
-    xtermRef.current = term;
+      if (isDisposed || !terminalRef.current) return;
 
-    // WebSocket Setup
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/terminal-ws`);
-    wsRef.current = ws;
+      term = new XTermCtor({
+        cursorBlink: true,
+        fontSize: 12,
+        fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, "Courier New", monospace',
+        theme: {
+          background: '#020a08',
+          foreground: '#00ff9d',
+          cursor: '#00ff9d',
+          selectionBackground: 'rgba(0, 255, 157, 0.3)',
+        },
+      });
 
-    ws.onopen = () => {
-      setIsConnected(true);
-      term.writeln('\x1b[1;32mConnected to Persistent PowerShell Session\x1b[0m');
-    };
+      const fitAddon = new FitAddonCtor();
+      fitAddonRef.current = fitAddon;
+      if (typeof term.loadAddon === 'function') term.loadAddon(fitAddon);
+      term.open(terminalRef.current!);
 
-    ws.onmessage = (event) => {
-      term.write(event.data.toString().replace(/\n/g, '\r\n'));
-    };
+      // Ensure terminal is rendered before fitting
+      initialFitTimer = window.setTimeout(() => {
+        if (isDisposed) return;
+        try {
+          fitAddon.fit();
+        } catch (e) {
+          console.warn('Initial terminal fit failed', e);
+        }
+      }, 100);
 
-    ws.onclose = () => {
-      setIsConnected(false);
-      term.writeln('\r\n\x1b[1;31mConnection Closed\x1b[0m');
-    };
+      xtermRef.current = term;
 
-    ws.onerror = (err) => {
-      term.writeln('\r\n\x1b[1;31mWebSocket Error Check server logs.\x1b[0m');
-      console.error('WS Error:', err);
-    }
+      // WebSocket Setup
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/api/terminal-ws`);
+      wsRef.current = ws;
 
-    const handleResize = () => {
-      try {
-        fitAddon.fit();
-      } catch (e) {}
-    };
-    window.addEventListener('resize', handleResize);
+      ws.onopen = () => {
+        setIsConnected(true);
+        term.writeln('\x1b[1;32mConnected to Persistent PowerShell Session\x1b[0m');
+      };
+
+      ws.onmessage = (event) => {
+        term.write(event.data.toString().replace(/\n/g, '\r\n'));
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        term.writeln('\r\n\x1b[1;31mConnection Closed\x1b[0m');
+      };
+
+      ws.onerror = (err) => {
+        term.writeln('\r\n\x1b[1;31mWebSocket Error Check server logs.\x1b[0m');
+        console.error('WS Error:', err);
+      }
+
+      handleResize = () => {
+        try {
+          fitAddon.fit();
+        } catch {}
+      };
+      window.addEventListener('resize', handleResize);
+    })();
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      if (ws.readyState === WebSocket.OPEN) ws.close();
-      term.dispose();
+      isDisposed = true;
+      if (initialFitTimer !== null) window.clearTimeout(initialFitTimer);
+      if (handleResize) window.removeEventListener('resize', handleResize);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+      if (term) term.dispose();
     };
   }, []);
 
@@ -93,7 +119,7 @@ export function Terminal({ onClose }: TerminalProps) {
       if (fitAddonRef.current) {
         try {
           fitAddonRef.current.fit();
-        } catch (e) {}
+        } catch {}
       }
     }, 350); // wait for resize transition
     return () => clearTimeout(timer);
@@ -119,7 +145,7 @@ export function Terminal({ onClose }: TerminalProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[rgba(6,26,21,0.9)]">
         <div className="flex items-center gap-2 text-[0.6rem] font-mono text-[var(--accent)] uppercase tracking-tighter">
           <Play className="w-3 h-3" />
-          <span>Persistent Terminal (pwsh)</span>
+            <span>Persistent Terminal (pwsh)</span>
           <span className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-[var(--ok)] animate-pulse" : "bg-[var(--bad)]")} />
         </div>
         <div className="flex items-center gap-3">

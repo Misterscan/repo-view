@@ -1,0 +1,116 @@
+import { type Express, type Request, type Response } from 'express';
+import multer from 'multer';
+import AdmZip from 'adm-zip';
+import path from 'path';
+import { createHash } from 'crypto';
+import { IGNORED_DIRS, IGNORED_EXTS } from '../src/lib/constants';
+import { promises as fs } from 'fs';
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+function isIgnoredPath(p: string) {
+  const lower = p.toLowerCase();
+  if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) return true;
+  const parts = p.split('/');
+  if (parts.some(part => IGNORED_DIRS.includes(part))) return true;
+  return false;
+}
+
+export function registerRepoRoutes(app: Express, rootDir: string) {
+  app.post('/api/repo/compare', upload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: 'zip file required in field `file`' });
+        return;
+      }
+
+      const clientHashes = req.body.clientHashes ? JSON.parse(req.body.clientHashes) : {};
+
+      const zip = new AdmZip(req.file.buffer);
+      const entries = zip.getEntries();
+
+      const files: { path: string; hash: string; size: number }[] = [];
+
+      for (const entry of entries) {
+        if (entry.isDirectory) continue;
+        const rel = entry.entryName.replace(/^\/+/, '');
+        if (isIgnoredPath(rel)) continue;
+        const data = entry.getData();
+        const hash = createHash('sha256').update(data).digest('hex');
+        files.push({ path: rel, hash, size: data.length });
+      }
+
+      const changed: string[] = [];
+      const changedFiles: { path: string; data: string; size: number }[] = [];
+      for (const entry of entries) {
+        if (entry.isDirectory) continue;
+        const rel = entry.entryName.replace(/^\/+/, '');
+        if (isIgnoredPath(rel)) continue;
+        const data = entry.getData();
+        const hash = createHash('sha256').update(data).digest('hex');
+        const clientHash = clientHashes[rel];
+        if (!clientHash || clientHash !== hash) {
+          changed.push(rel);
+          changedFiles.push({ path: rel, data: data.toString('base64'), size: data.length });
+        }
+      }
+
+      res.json({ files, changed, changedFiles });
+    } catch (error: any) {
+      console.error('Repo compare error:', error);
+      res.status(500).json({ error: error.message || 'Failed to compare repo' });
+    }
+  });
+  
+    // Persist zip and extract into server-side session
+    app.post('/api/repo/upload', upload.single('file'), async (req: Request, res: Response) => {
+      try {
+        if (!req.file) {
+          res.status(400).json({ error: 'zip file required in field `file`' });
+          return;
+        }
+      
+        const clientHashes = req.body.clientHashes ? JSON.parse(req.body.clientHashes) : {};
+      
+        const sessionId = Date.now().toString();
+        const uploadsDir = path.join(rootDir, 'server_uploads');
+        await fs.mkdir(uploadsDir, { recursive: true });
+      
+        const zipPath = path.join(uploadsDir, `${sessionId}.zip`);
+        await fs.writeFile(zipPath, req.file.buffer);
+      
+        const extractDir = path.join(uploadsDir, sessionId);
+        const zip = new AdmZip(req.file.buffer);
+        zip.extractAllTo(extractDir, true);
+      
+        // enumerate files and compute hashes
+        const entries = zip.getEntries();
+        const files: { path: string; hash: string; size: number }[] = [];
+        const changed: string[] = [];
+        const changedFiles: { path: string; data: string; size: number }[] = [];
+      
+        for (const entry of entries) {
+          if (entry.isDirectory) continue;
+          const rel = entry.entryName.replace(/^\/+/, '');
+          if (isIgnoredPath(rel)) continue;
+          const data = entry.getData();
+          const hash = createHash('sha256').update(data).digest('hex');
+          files.push({ path: rel, hash, size: data.length });
+          const clientHash = clientHashes[rel];
+          if (!clientHash || clientHash !== hash) {
+            changed.push(rel);
+            changedFiles.push({ path: rel, data: data.toString('base64'), size: data.length });
+          }
+        }
+      
+        // save manifest
+        const manifest = { sessionId, files, extractedAt: Date.now() };
+        await fs.writeFile(path.join(extractDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      
+        res.json({ sessionId, files, changed, changedFiles, zipPath, extractDir });
+      } catch (error: any) {
+        console.error('Repo upload error:', error);
+        res.status(500).json({ error: error.message || 'Failed to upload repo' });
+      }
+    });
+}
