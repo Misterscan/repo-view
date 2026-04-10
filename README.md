@@ -1,10 +1,20 @@
 # repoview: Repodoc Viewer and Coding Agent Interface
 
+![repoview logo](/public/full-size-logo.png)
+
 repoview is a local-first coding workspace for exploring repositories, chatting with indexed code, and applying changes directly from the UI.
 
 It combines a React + Vite frontend with an Express API, IndexedDB-backed local context, optional GitHub inspection tools, and Gemini-powered assistance.
 
 The local API is protected by same-origin or token-based auth and rate-limited by default, with stricter limits on high-impact file and repository mutation endpoints.
+
+## 🚀 Recent Updates (Live)
+
+The application now features a live **Welcome Screen** on startup that pulls the latest changes directly from the [repo-view GitHub](https://github.com/Misterscan/repo-view), showing:
+- **Recent Commits:** Author, SHA, and timestamp.
+- **File Changes:** A detailed breakdown of which files were modified in each update.
+
+---
 
 ## Demo Screenshot
 
@@ -79,10 +89,16 @@ flowchart TD
 
 ## 🚀 Quick Start Guide
 
-### The Easiest Way (Windows Only)
-If you are on Windows, you can simply run the included batch script. This will automatically detect your package manager, install dependencies if they are missing, start the development server, and open your browser:
+### The Easiest Ways (Windows Only)
+If you are on Windows, you can simply run the included batch scripts. These will automatically detect your package manager, install dependencies if they are missing, start the development server (or production server), and open your browser:
 ```cmd
-.\scripts\web-ui.bat
+.\scripts\dev-ui.bat
+```
+```cmd
+.\scripts\build-start-ui.bat
+```
+```cmd
+.\script\start-ui.bat
 ```
 
 ### Manual Setup

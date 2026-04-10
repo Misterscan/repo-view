@@ -89,6 +89,22 @@ export function registerGeminiRoutes(app: Express, geminiApiKey: string) {
     }
   });
 
+  app.post('/api/gemini/countTokens', async (req: Request, res: Response) => {
+    try {
+      const { model, contents, config } = req.body || {};
+      if (!model || !contents) {
+        json(res, 400, { error: 'model and contents are required.' });
+        return;
+      }
+
+      const result = await getGeminiClient(geminiApiKey).models.countTokens({ model, contents, config });
+      json(res, 200, { totalTokens: result.totalTokens });
+    } catch (error: any) {
+      console.error('Gemini countTokens error:', error);
+      json(res, 500, { error: error.message || 'Failed to count tokens.' });
+    }
+  });
+
   app.post('/api/gemini/upload', async (req: Request, res: Response) => {
     try {
       const { name, mimeType, data } = req.body || {};

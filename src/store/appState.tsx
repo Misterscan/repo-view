@@ -32,6 +32,10 @@ type AgentState = {
   setIsThinking: Dispatch<SetStateAction<boolean>>;
   selectedModel: string;
   setSelectedModel: Dispatch<SetStateAction<string>>;
+  temperaturePreset: 'focused' | 'balanced' | 'creative';
+  setTemperaturePreset: Dispatch<SetStateAction<'focused' | 'balanced' | 'creative'>>;
+  thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
+  setThinkingLevel: Dispatch<SetStateAction<'minimal' | 'low' | 'medium' | 'high'>>;
   useGrounding: boolean;
   setUseGrounding: Dispatch<SetStateAction<boolean>>;
 };
@@ -64,11 +68,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [uploadedUris, setUploadedUris] = useState<UploadedUri[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', text: '**Welcome to your coding agent.**\n\n- Load your project files.\n- Click **Index & Upload** to prepare the context.\n- Chat with your codebase using RAG and Live Grounding.' },
+    { role: 'ai', text: '**Hello, I\'m your built-in repoview Coding Agent.**\n\n- Load your project files.\n- Click **Index & Upload** to prepare the context for your codebase.\n- Chat with me using RAG and Live Grounding.' },
   ]);
   const [query, setQuery] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-pro-preview');
+  const [temperaturePreset, setTemperaturePreset] = useState<'focused' | 'balanced' | 'creative'>('balanced');
+  const [thinkingLevel, setThinkingLevel] = useState<'minimal' | 'low' | 'medium' | 'high'>('medium');
   const [useGrounding, setUseGrounding] = useState(true);
 
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -105,6 +111,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           setIsThinking,
           selectedModel,
           setSelectedModel,
+          temperaturePreset,
+          setTemperaturePreset,
+          thinkingLevel,
+          setThinkingLevel,
           useGrounding,
           setUseGrounding,
         },

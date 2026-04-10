@@ -194,16 +194,17 @@ export function useIndexer() {
         } catch {}
 
         // Mime check if valid for embedding
-        const isEmbeddable = (mime.startsWith('text/') || mime === 'application/json') && blobText.length < CONFIG.maxEmbeddingBytes;
-        const isMedia = mime.startsWith('image/');
+        const geminiMime = mime === 'image/svg+xml' ? 'text/plain' : mime;
+        const isEmbeddable = (geminiMime.startsWith('text/') || geminiMime === 'application/json') && blobText.length < CONFIG.maxEmbeddingBytes;
+        const isMedia = geminiMime.startsWith('image/');
 
         // 1. Upload to Files API (Text only)
         if (blobText && !isMedia) {
           try {
             // Reconstruct a File for Gemini Upload
-            const fileBlob = new File([blobText], fNode.name, { type: mime });
-            const uri = await uploadFileToGemini(fileBlob, mime);
-            newUris.push({ uri, name: fNode.name, mimeType: mime, size: blobText.length });
+            const fileBlob = new File([blobText], fNode.name, { type: geminiMime });
+            const uri = await uploadFileToGemini(fileBlob, geminiMime);
+            newUris.push({ uri, name: fNode.name, mimeType: geminiMime, size: blobText.length });
             await updateSessionUris(currentSessionId, newUris);
           } catch (e) { console.warn("Files API error", e); }
         }

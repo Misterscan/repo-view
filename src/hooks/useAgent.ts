@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Message, ChunkDoc } from '../types';
-import { embedTexts, estimateTokens, generateModelContent } from '../lib/gemini';
+import { embedTexts, estimateTokens, countModelTokens, generateModelContent } from '../lib/gemini';
 import { CONFIG } from '../lib/constants';
 import { ThinkingLevel } from '@google/genai';
 import { saveChatHistory, getChatHistory, getSessionFileBlob } from '../lib/db';
@@ -13,11 +13,20 @@ function estimatePartTokens(parts: any[]) {
     }
 
     if (part.fileData) {
-      return total + estimateTokens(`${part.fileData.mimeType || ''}:${part.fileData.fileUri || ''}`);
+      let cost = 258; // Default base cost
+      if (part.fileData.mimeType?.startsWith('image/')) {
+        cost = 258;
+      } else if (part._size) {
+        cost = Math.ceil(part._size / 4);
+      }
+      return total + cost;
     }
 
     if (part.inlineData) {
-      return total + estimateTokens(`${part.inlineData.mimeType || ''}:${part.inlineData.data || ''}`);
+      if (part.inlineData.mimeType?.startsWith('image/')) {
+        return total + 258;
+      }
+      return total + Math.ceil((part.inlineData.data.length * 0.75) / 4);
     }
 
     return total;
@@ -38,11 +47,42 @@ export function useAgent(
     setIsThinking,
     selectedModel,
     setSelectedModel,
+    temperaturePreset,
+    setTemperaturePreset,
+    thinkingLevel,
+    setThinkingLevel,
     useGrounding,
     setUseGrounding,
   } = useAgentState();
   const [lastRequestTokens, setLastRequestTokens] = useState<number | null>(null);
-  const draftQueryTokens = estimateTokens(query);
+  const [draftQueryTokens, setDraftQueryTokens] = useState<number>(0);
+
+  useEffect(() => {
+    if (!query) {
+      setDraftQueryTokens(0);
+      return;
+    }
+    const timer = setTimeout(() => {
+      countModelTokens({ model: selectedModel, contents: [{ role: 'user', parts: [{ text: query }] }] })
+        .then(setDraftQueryTokens)
+        .catch(() => setDraftQueryTokens(estimateTokens(query)));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [query, selectedModel]);
+
+  const temperature = temperaturePreset === 'focused'
+    ? 0.1
+    : temperaturePreset === 'creative'
+      ? 0.5
+      : 0.3;
+
+  const modelThinkingLevel = thinkingLevel === 'minimal'
+    ? ThinkingLevel.MINIMAL
+    : thinkingLevel === 'medium'
+      ? ThinkingLevel.MEDIUM
+      : thinkingLevel === 'high'
+        ? ThinkingLevel.HIGH
+        : ThinkingLevel.LOW; // Default to LOW for 'low' and any unexpected value
 
   // Load chat history when sessionId changes
   useEffect(() => {
@@ -88,7 +128,7 @@ export function useAgent(
       const ragContext = relevant.filter(r => !r.isMedia).map(r => r.text).join("\n\n");
       const mediaFiles = relevant.filter(r => r.isMedia);
 
-      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri } }));
+      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
       
       // Add Local Media as InlineData
       for (const m of mediaFiles) {
@@ -101,7 +141,8 @@ export function useAgent(
             reader.readAsDataURL(blob);
           });
           const cleanBase64 = base64.split(',')[1];
-          parts.push({ inlineData: { mimeType: m.mimeType || 'image/jpeg', data: cleanBase64 } });
+          const safeMime = (m.mimeType === 'image/svg+xml' || m.mimeType === 'text/xml') ? 'text/plain' : (m.mimeType || 'image/jpeg');
+          parts.push({ inlineData: { mimeType: safeMime, data: cleanBase64 } });
         }
       }
 
@@ -122,21 +163,22 @@ export function useAgent(
                   - **Grounding & Citations:** ${groundingInstruction}
                   - **Uncertainty:** If current information is unavailable from the provided context, explicitly say so rather than guessing.
                   Format your responses in clean Markdown.`;
-      setLastRequestTokens(estimatePartTokens(parts) + estimateTokens(systemInstructionText));
-      
-      const resultText = await generateModelContent({
+      const requestConfig = {
         model: selectedModel,
         contents: [{ role: 'user', parts }],
         config: {
           tools: useGrounding ? [{ googleSearch: {} }] : [] as any[],
-          temperature: 0.2,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+          temperature,
+          thinkingConfig: { thinkingLevel: modelThinkingLevel },
           systemInstruction: {
-            parts: [{
-              text: systemInstructionText }]
+            parts: [{ text: systemInstructionText }]
           }
         }
-      });
+      };
+      const actualTokens = await countModelTokens(requestConfig).catch(() => estimatePartTokens(parts) + estimateTokens(systemInstructionText));
+      setLastRequestTokens(actualTokens);
+      
+      const resultText = await generateModelContent(requestConfig);
       setMessages(prev => [...prev, { role: 'ai', text: resultText || "No response." }]);
     } catch (e: any) {
       setMessages(prev => [...prev, { role: 'ai', text: `**Error:** ${e.message}` }]);
@@ -151,23 +193,26 @@ export function useAgent(
     setMessages(prev => [...prev, { role: 'user', text: "Please perform a full architectural review of this repository." }]);
 
     try {
-      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri } }));
+      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
       const promptText = "Perform a comprehensive technical review of this codebase. Analyze the architecture, key patterns, and potential optimizations.";
       parts.push({ text: promptText });
       const systemInstructionText = 'You are a master software architect. Analyze the attached files and provide a deep technical audit.';
-      setLastRequestTokens(estimatePartTokens(parts) + estimateTokens(systemInstructionText));
-
-      const resultText = await generateModelContent({
+      const requestConfig = {
         model: selectedModel,
         contents: [{ role: 'user', parts }],
         config: {
-          temperature: 0.1,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+          temperature,
+          thinkingConfig: { thinkingLevel: modelThinkingLevel },
           systemInstruction: {
             parts: [{ text: systemInstructionText }]
           }
         }
-      });
+      };
+      
+      const actualTokens = await countModelTokens(requestConfig).catch(() => estimatePartTokens(parts) + estimateTokens(systemInstructionText));
+      setLastRequestTokens(actualTokens);
+
+      const resultText = await generateModelContent(requestConfig);
       setMessages(prev => [...prev, { role: 'ai', text: resultText || "Analysis complete." }]);
     } catch (e: any) {
       setMessages(prev => [...prev, { role: 'ai', text: `**Review Error:** ${e.message}` }]);
@@ -200,6 +245,10 @@ export function useAgent(
     isThinking,
     selectedModel,
     setSelectedModel,
+    temperaturePreset,
+    setTemperaturePreset,
+    thinkingLevel,
+    setThinkingLevel,
     draftQueryTokens,
     lastRequestTokens,
     useGrounding,

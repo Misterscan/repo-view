@@ -1,5 +1,14 @@
 {
   "name": "repoview",
-  "description": "Upload your repository documentation and view them in a clean, navigable interface. Includes a feature to review your repo robustly using Gemini 3.1 Flash.",
+  "description": "Go from first import to safe code changes faster: onboard into unfamiliar repos, get grounded answers from your files, apply edits with review, and run tests without leaving one workspace.",
+  "author": "Misterscan",
+  "license": "MIT",
+  "keywords": [
+    "repository documentation",
+    "code review",
+    "AI assistant",
+    "developer tools",
+    "software development"
+  ],
   "requestFramePermissions": []
 }

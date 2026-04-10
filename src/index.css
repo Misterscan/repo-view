@@ -88,3 +88,27 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
+
+/* Logo handling: make white background visually disappear by using blend mode.
+   Place your logo at `/logo.png` (project root or public) or adjust the src.
+   The CSS below ensures the white background blends into the dark UI. */
+.repoview-logo {
+  display: inline-block;
+  width: 1.4rem;
+  height: 1.4rem;
+  object-fit: contain;
+  vertical-align: middle;
+  mix-blend-mode: screen; /* white pixels become background */
+  filter: saturate(1.1) contrast(1.05);
+}
+.repoview-logo-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  background: transparent;
+}
+
+.logo-fallback-icon { display: inline-flex; }

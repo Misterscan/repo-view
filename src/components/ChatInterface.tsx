@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Trash2, CheckCircle2, AlertCircle, Save, X } from 'lucide-react';
+import { Bot, Loader2, Send, Trash2, CheckCircle2, AlertCircle, Save, X, LucideBrain } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Message } from '../types';
 import { readApiError, readApiResult } from '../lib/api';
@@ -69,6 +69,10 @@ interface ChatInterfaceProps {
   isThinking: boolean;
   selectedModel: string;
   setSelectedModel: (m: string) => void;
+  temperaturePreset: 'focused' | 'balanced' | 'creative';
+  setTemperaturePreset: (preset: 'focused' | 'balanced' | 'creative') => void;
+  thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
+  setThinkingLevel: (level: 'minimal' | 'low' | 'medium' | 'high') => void;
   draftQueryTokens: number;
   lastRequestTokens: number | null;
   indexState: string;
@@ -231,7 +235,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
 };
 
 export function ChatInterface({
-  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear
+  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, temperaturePreset, setTemperaturePreset, thinkingLevel, setThinkingLevel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear
 }: ChatInterfaceProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -243,18 +247,10 @@ export function ChatInterface({
     <div className="w-[450px] flex-shrink-0 border-l border-[var(--border)] flex flex-col bg-[var(--sidebar-bg)] relative z-20">
       <div className="h-10 bg-[rgba(6,26,21,0.9)] border-b border-[var(--border)] flex items-center justify-between px-4 text-[0.65rem] font-mono text-[var(--accent)] uppercase tracking-tighter">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <Bot className="w-3 h-3" /> Intelligence Panel
+          <div className="repoview-logo-wrapper" aria-hidden>
+            <img src="/logo.png" alt="repoview" className="repoview-logo" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
           </div>
-          <select 
-            value={selectedModel} 
-            onChange={e => setSelectedModel(e.target.value)} 
-            className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer opacity-60 hover:opacity-100 text-[0.6rem] font-bold uppercase"
-          >
-            <option value="gemini-3.1-pro-preview">Pro</option>
-            <option value="gemini-3.1-flash-lite-preview">Flash-Lite</option>
-            <option value="gemini-3-flash-preview">Flash</option>
-          </select>
+          <span>CODING AGENT</span>
         </div>
         <div className="flex items-center gap-2">
           <span className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(0,255,157,0.5)]", indexState.includes('Ready') ? "bg-[var(--ok)]" : "bg-[var(--bad)] animate-pulse")} />
@@ -274,7 +270,7 @@ export function ChatInterface({
             </button>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[0.6rem] uppercase font-black tracking-widest text-[var(--accent)] opacity-70">
-                {m.role === 'user' ? 'Operator' : 'repoview'}
+                {m.role === 'user' ? 'Operator' : 'repoview Agent'}
               </span>
               <span className="text-[0.5rem] opacity-30 font-mono">L{m.text.length}</span>
             </div>
@@ -293,7 +289,7 @@ export function ChatInterface({
         {isThinking && (
           <div className="flex items-center gap-3 p-4 text-[var(--accent)] animate-pulse bg-[var(--accent)]/5 rounded-xl border border-[var(--accent)]/20">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span className="text-[0.65rem] uppercase font-black tracking-widest">Constructing Insight...</span>
+            <span className="text-[0.65rem] uppercase font-black tracking-widest">Thinking...</span>
           </div>
         )}
         <div ref={chatEndRef} />
@@ -306,7 +302,7 @@ export function ChatInterface({
               value={query} 
               onChange={e => setQuery(e.target.value)} 
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }} 
-              placeholder="Query core documentation..." 
+              placeholder="Ask a question (eg. 'Can you verify that my build runs without lint errors?')..." 
               className="w-full bg-[#09211b] text-[var(--text-main)] border border-[var(--border)] rounded-xl p-3 pr-10 min-h-[80px] max-h-40 resize-none outline-none focus:border-[var(--accent)] transition-all text-xs placeholder:text-[var(--text-muted)] placeholder:uppercase placeholder:font-bold placeholder:tracking-tighter" 
             />
             <button 
@@ -317,6 +313,47 @@ export function ChatInterface({
               <Send className="w-4 h-4" />
             </button>
           </div>
+          <div className="flex items-center gap-1.5 opacity-80">
+            <Bot className="w-3 h-3" /> 
+          <select 
+            value={selectedModel} 
+            onChange={e => setSelectedModel(e.target.value)} 
+            className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer opacity-60 hover:opacity-100 text-[0.6rem] font-bold uppercase"
+          >
+            <option value="gemini-3.1-pro-preview">Model: Pro</option>
+            <option value="gemini-3.1-flash-lite-preview">Model: Flash-Lite</option>
+            <option value="gemini-3-flash-preview">Model: Flash</option>
+          </select>
+        </div>
+
+          <div className="flex items-center gap-1.5 opacity-80">
+          <span className="text-[0.55rem] font-bold uppercase opacity-70">Temp</span>
+          <select
+            value={temperaturePreset}
+            onChange={(e) => setTemperaturePreset(e.target.value as 'focused' | 'balanced' | 'creative')}
+            className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer text-[0.6rem] font-bold uppercase"
+            aria-label="Temperature"
+          >
+            <option value="focused">Focused (0.1)</option>
+            <option value="balanced">Balanced (0.3)</option>
+            <option value="creative">Creative (0.5)</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-1.5 opacity-80">
+          <LucideBrain className="w-3 h-3" />
+          <select
+            value={thinkingLevel}
+            onChange={(e) => setThinkingLevel(e.target.value as 'minimal' | 'low' | 'medium' | 'high')}
+            className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer text-[0.6rem] font-bold uppercase"
+            aria-label="Thinking level"
+          >
+            <option value="minimal">Think: Minimal</option>
+            <option value="low">Think: Low</option>
+            <option value="medium">Think: Medium</option>
+            <option value="high">Think: High</option>
+          </select>
+          {isThinking && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />}
+        </div>
 
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 cursor-pointer group">

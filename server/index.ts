@@ -33,16 +33,51 @@ if (!devToken) {
 const app = express();
 const httpServer = createServer(app);
 
+// Verbose logging flag (enable in development or via env)
+const verbose = Boolean(process.env.REPOVIEW_VERBOSE === '1' || process.env.DEBUG === '1' || isDev);
+
+// Simple request logger middleware
+function requestLogger(req: any, res: any, next: any) {
+  // prevent double-logging if middleware attached multiple times
+  if ((req as any).__repoview_logged) return next();
+  (req as any).__repoview_logged = true;
+
+  const start = Date.now();
+  const { method, url } = req;
+  const shortHeaders = { host: req.headers.host, origin: req.headers.origin };
+
+  // on finish, log a single consolidated line
+  res.once('finish', () => {
+    const ms = Date.now() - start;
+    const line = `[repoview] ${method} ${url} -> ${res.statusCode} ${ms}ms headers=${JSON.stringify(shortHeaders)}`;
+    if (verbose) console.log(line);
+
+    // optional file logging
+    const logFile = process.env.REPOVIEW_LOG_FILE || path.resolve(rootDir, 'logs', 'server.log');
+    // ensure logs dir exists (fire-and-forget)
+    fs.mkdir(path.dirname(logFile), { recursive: true }).catch(() => null).then(() => {
+      fs.appendFile(logFile, `${new Date().toISOString()} ${line}\n`).catch(() => null);
+    }).catch(() => null);
+  });
+
+  next();
+}
+
+if (verbose) app.use(requestLogger);
+
+const API_RATE_LIMIT = { windowMs: 15 * 60 * 1000, max: 300 };
+const FILEOPS_RATE_LIMIT = { windowMs: 15 * 60 * 1000, max: 100 };
+
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
+  windowMs: API_RATE_LIMIT.windowMs,
+  max: API_RATE_LIMIT.max,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const fileOpsLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: FILEOPS_RATE_LIMIT.windowMs,
+  max: FILEOPS_RATE_LIMIT.max,
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -199,6 +234,60 @@ app.post('/api/import-local-repo', async (req, res) => {
 registerGeminiRoutes(app, geminiApiKey);
 registerRepoRoutes(app, rootDir);
 registerGitHubRoutes(app, rootDir);
+
+// Integrations health endpoint (masked configuration)
+app.get('/api/integrations', (_req, res) => {
+  const mask = (v?: string) => v ? `***${String(v).slice(-4)}` : null;
+  const geminiEnv = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  const githubEnv = process.env.GITHUB_TOKEN || process.env.REPOVIEW_GITHUB_TOKEN || '';
+  json(res, 200, {
+    gemini: geminiEnv ? { configured: true, key: mask(geminiEnv) } : { configured: false },
+    github: githubEnv ? { configured: true, token: mask(githubEnv) } : { configured: false },
+    devToken: devToken ? { configured: true } : { configured: false },
+  });
+});
+
+// If verbose mode is enabled, list registered routes and log rate-limit settings
+function listRoutes() {
+  try {
+    const stack = (app as any)._router?.stack || [];
+    const routes: string[] = [];
+    for (const layer of stack) {
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods || {}).join(',').toUpperCase();
+        routes.push(`${methods} ${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        for (const nested of layer.handle.stack) {
+          if (nested.route && nested.route.path) {
+            const methods = Object.keys(nested.route.methods || {}).join(',').toUpperCase();
+            routes.push(`${methods} ${nested.route.path}`);
+          }
+        }
+      }
+    }
+    console.log('[repoview] Registered routes:');
+    routes.forEach(r => console.log('  -', r));
+  } catch (e) {
+    console.warn('[repoview] Failed to list routes', e);
+  }
+}
+
+if (verbose) {
+  console.log('[repoview] Verbose logging enabled');
+  listRoutes();
+  console.log(`[repoview] Rate limits: api=${API_RATE_LIMIT.max}/${API_RATE_LIMIT.windowMs}ms, fileOps=${FILEOPS_RATE_LIMIT.max}/${FILEOPS_RATE_LIMIT.windowMs}ms`);
+  const mask = (v?: string) => v ? `***${String(v).slice(-4)}` : '(none)';
+  const geminiEnv = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  const githubEnv = process.env.GITHUB_TOKEN || process.env.REPOVIEW_GITHUB_TOKEN || '';
+  const devTokenMsg = devToken ? `${mask(devToken)} (masked)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
+  const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (masked)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
+  const githubMsg = githubEnv ? `${mask(githubEnv)} (masked)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
+
+  console.log(`[repoview] Dev token: ${devTokenMsg}`);
+  console.log(`[repoview] Gemini API key: ${geminiMsg}`);
+  console.log(`[repoview] GitHub token: ${githubMsg}`);
+  console.log(`[repoview] Env: ${process.env.NODE_ENV || (isDev ? 'development' : 'production')}, Port: ${port}`);
+}
 
 app.get('/api/health', (_req, res) => {
   json(res, 200, { ok: true, mode: isDev ? 'development' : 'production' });

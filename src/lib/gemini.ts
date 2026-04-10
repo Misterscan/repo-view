@@ -46,6 +46,11 @@ export async function generateModelContent(request: GenerateContentRequest): Pro
   return result.text || '';
 }
 
+export async function countModelTokens(request: GenerateContentRequest): Promise<number> {
+  const result = await postJson<{ totalTokens?: number }>('/api/gemini/countTokens', request);
+  return result.totalTokens || 0;
+}
+
 export function chunkText(text: string, size: number, name: string) {
   const chunks: string[] = [];
   const header = `// File: ${name}\n`;
@@ -119,9 +124,22 @@ export function cosineSimilarity(a: number[], b: number[]) {
   return dot / (Math.sqrt(mA) * Math.sqrt(mB));
 }
 
-// Lightweight token estimator (Gemini: ~4 chars per token)
+// Improved lightweight token estimator
 export function estimateTokens(text: string): number {
-  return Math.ceil((text?.length || 0) / 4);
+  if (!text) return 0;
+  
+  // Standard characters/4 often underestimates code which is dense with symbols.
+  // A more accurate heuristic for source code and markdown splits by words and punctuation.
+  const tokens = text.match(/[\w]+|[^\w\s]/g);
+  if (!tokens) return Math.ceil(text.length / 4);
+  
+  let count = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    // Long words (like UUIDs or long camelCase) are split into multiple tokens
+    count += Math.ceil(tokens[i].length / 4); 
+  }
+  
+  return count;
 }
 
 

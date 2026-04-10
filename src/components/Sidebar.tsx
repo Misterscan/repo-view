@@ -279,8 +279,11 @@ export function Sidebar({
       <div className="p-4 flex flex-col gap-4 border-b border-[var(--border)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-md font-bold text-[var(--accent)] tracking-widest neon-glow">
+            <div className="repoview-logo-wrapper" aria-hidden>
+              <img src="/logo.png" alt="repoview" className="repoview-logo" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} onClick={() => window.open('https://github.com/Misterscan/repo-view', '_blank')} />
+            </div>
             <Code2 className="w-5 h-5" />
-            <span>CODING AGENT</span>
+            <span>📑repoview👁️</span>
           </div>
           <div className="flex items-center gap-2">
             <button 
@@ -339,7 +342,7 @@ export function Sidebar({
             className="action-btn-jungle w-full py-2 flex items-center justify-center gap-2 disabled:opacity-30 text-[0.65rem] font-bold"
           >
             {isIndexing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-            {isIndexing ? `INDEXING ${indexProgress}%` : `GENERATE EMBEDDINGS (RAG)`}
+            {isIndexing ? `INDEXING ${indexProgress}%` : `INDEX & UPLOAD`}
           </button>
         </div>
       </div>

@@ -1,7 +1,17 @@
 {
   "name": "repoview",
   "private": true,
-  "version": "1.3.1",
+  "version": "1.3.3",
+  "description": "Go from first import to safe code changes faster: onboard into unfamiliar repos, get grounded answers from your files, apply edits with review, and run tests without leaving one workspace.",
+  "author": "Misterscan",
+  "license": "MIT",
+  "keywords": [
+    "repository documentation",
+    "code review",
+    "AI assistant",
+    "developer tools",
+    "software development"
+  ],
   "type": "module",
   "scripts": {
     "dev": "tsx server/index.ts --dev",
