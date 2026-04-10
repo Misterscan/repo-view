@@ -10,3 +10,4 @@ The Retrieval-Augmented Generation (RAG) worker is the search engine of **repovi
 - Retrieves all saved vectorized code chunks for the active workspace.
 - Calculates **Cosine Similarity** between the user's string query and the thousands of dense vector properties extracted from the codebase.
 - Sorts and returns the most relevant code contexts back to the React UI, bounding results natively within the worker.
+

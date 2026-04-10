@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Trash2, CheckCircle2, AlertCircle, Save, X, LucideBrain } from 'lucide-react';
+import { Bot, Loader2, Send, Trash2, CheckCircle2, AlertCircle, Save, X, LucideBrain, Paperclip, FileText, Image as ImageIcon } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Message } from '../types';
 import { readApiError, readApiResult } from '../lib/api';
 import { cn } from '../lib/utils';
+import { getMimeType } from '../lib/gemini';
 
 type DiffLine = {
   kind: 'same' | 'add' | 'remove';
@@ -78,14 +79,26 @@ interface ChatInterfaceProps {
   indexState: string;
   useGrounding: boolean;
   setUseGrounding: (b: boolean) => void;
-  onSend: () => void;
+  onSend: (attachments?: { name: string, mimeType: string, data: string }[]) => void;
   onDeleteMessage: (index: number) => void;
   onClear: () => void;
+  currentSessionId: string | null;
 }
 
-const CodeBlock = ({ children, className }: { children: any, className?: string }) => {
+const CodeBlock = ({ children, className, sessionId }: { children: any, className?: string, sessionId?: string | null }) => {
   const [status, setStatus] = useState<'idle' | 'applying' | 'success' | 'error'>('idle');
-  const [targetPath, setTargetPath] = useState('');
+  const [targetPath, setTargetPath] = useState(() => {
+    const text = String(children);
+    // Try to find common path patterns at the start of the block
+    const firstLine = text.split('\n')[0].trim();
+    const pathMatch = firstLine.match(/\/\/\s*File:\s*(.+)|#\s*File:\s*(.+)/i);
+    if (pathMatch) return pathMatch[1] || pathMatch[2];
+    
+    // Check if the block content starts with a path like /home/user/... or C:\...
+    if (firstLine.startsWith('/') || firstLine.match(/^[a-zA-Z]:\\/)) return firstLine;
+    
+    return '';
+  });
   const [showApply, setShowApply] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
@@ -106,7 +119,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
       const response = await fetch('/api/read-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: targetPath }),
+        body: JSON.stringify({ filePath: targetPath, sessionId }),
       });
       const data = await readApiResult<{ content?: string }>(response, 'Failed to read file');
       setDiffLines(buildLineDiff(String(data?.content || ''), nextText));
@@ -120,7 +133,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
 
   const applyChange = async () => {
     if (!targetPath) {
-      alert("Please specify a target path relative to the repository root.");
+      alert("Please specify a target path.");
       return;
     }
     setStatus('applying');
@@ -128,7 +141,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
       const response = await fetch('/api/write-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: targetPath, content: nextText }),
+        body: JSON.stringify({ filePath: targetPath, content: nextText, sessionId }),
       });
       if (!response.ok) await readApiError(response, 'Write failed');
       setStatus('success');
@@ -170,7 +183,7 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
             <div className="flex gap-2">
               <input 
                 type="text" 
-                placeholder="Target Path [eg. C:/path/to/file]" 
+                placeholder="Target Path [eg. 'path/to/file']" 
                 value={targetPath}
                 onChange={e => {
                   setTargetPath(e.target.value);
@@ -235,13 +248,43 @@ const CodeBlock = ({ children, className }: { children: any, className?: string 
 };
 
 export function ChatInterface({
-  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, temperaturePreset, setTemperaturePreset, thinkingLevel, setThinkingLevel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear
+  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, temperaturePreset, setTemperaturePreset, thinkingLevel, setThinkingLevel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear, currentSessionId
 }: ChatInterfaceProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<{ file: File; data: string }[]>([]);
 
   useEffect(() => { 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [messages]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+      const cleanBase64 = base64.split(',')[1];
+      setAttachments(prev => [...prev, { file, data: cleanBase64 }]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSendWithAttachments = () => {
+    const atts = attachments.map(a => ({
+      name: a.file.name,
+      mimeType: a.file.type || getMimeType(a.file.name),
+      data: a.data
+    }));
+    onSend(atts);
+    setAttachments([]);
+  };
 
   return (
     <div className="w-[450px] flex-shrink-0 border-l border-[var(--border)] flex flex-col bg-[var(--sidebar-bg)] relative z-20">
@@ -274,12 +317,24 @@ export function ChatInterface({
               </span>
               <span className="text-[0.5rem] opacity-30 font-mono">L{m.text.length}</span>
             </div>
+            
+            {m.attachments && m.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {m.attachments.map((att, idx) => (
+                  <div key={idx} className="flex items-center gap-1.5 bg-black/40 border border-[var(--border)]/30 rounded px-2 py-1 text-[0.65rem] text-[var(--accent)] max-w-[150px] overflow-hidden">
+                    {att.mimeType.startsWith('image/') ? <ImageIcon className="w-3 h-3 flex-shrink-0" /> : <FileText className="w-3 h-3 flex-shrink-0" />}
+                    <span className="truncate">{att.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="prose prose-slate prose-invert max-w-none text-[0.85rem] leading-relaxed prose-code:text-[var(--accent-hover)] prose-code:bg-[var(--accent-dim)]/50 prose-code:px-1 prose-code:rounded prose-pre:bg-[#010806] prose-pre:border prose-pre:border-[var(--border)]">
               <Markdown components={{
                 code({ className, children, ...props }) {
                   const isBlock = !!className && className.includes('language-');
                   return isBlock ? (
-                    <CodeBlock className={className} {...props}>{children}</CodeBlock>
+                    <CodeBlock className={className} sessionId={currentSessionId} {...props}>{children}</CodeBlock>
                   ) : <code {...props as any}>{children}</code>
                 }
               }}>{m.text}</Markdown>
@@ -297,21 +352,51 @@ export function ChatInterface({
 
       <div className="p-4 bg-[var(--sidebar-bg)] border-t border-[var(--border)] shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
         <div className="flex flex-col gap-3">
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-1">
+              {attachments.map((a, i) => (
+                <div key={i} className="flex items-center gap-1.5 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-md px-2 py-1 text-[0.65rem] text-[var(--accent)] group/att">
+                  {a.file.type.startsWith('image/') ? <ImageIcon className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
+                  <span className="max-w-[100px] truncate">{a.file.name}</span>
+                  <button onClick={() => removeAttachment(i)} className="hover:text-[var(--bad)] text-[var(--text-muted)]">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="relative">
             <textarea 
               value={query} 
               onChange={e => setQuery(e.target.value)} 
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }} 
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendWithAttachments(); } }} 
               placeholder="Ask a question (eg. 'Can you verify that my build runs without lint errors?')..." 
-              className="w-full bg-[#09211b] text-[var(--text-main)] border border-[var(--border)] rounded-xl p-3 pr-10 min-h-[80px] max-h-40 resize-none outline-none focus:border-[var(--accent)] transition-all text-xs placeholder:text-[var(--text-muted)] placeholder:uppercase placeholder:font-bold placeholder:tracking-tighter" 
+              className="w-full bg-[#09211b] text-[var(--text-main)] border border-[var(--border)] rounded-xl p-3 pr-20 min-h-[80px] max-h-40 resize-none outline-none focus:border-[var(--accent)] transition-all text-xs placeholder:text-[var(--text-muted)] placeholder:uppercase placeholder:font-bold placeholder:tracking-tighter" 
             />
-            <button 
-              onClick={onSend} 
-              disabled={isThinking || !query.trim()} 
-              className="absolute bottom-3 right-3 text-[var(--accent)] disabled:opacity-10 hover:scale-110 transition-transform"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                className="hidden" 
+                multiple 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors p-1"
+                title="Attach Files"
+                disabled={isThinking}
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={handleSendWithAttachments} 
+                disabled={isThinking || (!query.trim() && attachments.length === 0)} 
+                className="text-[var(--accent)] disabled:opacity-10 hover:scale-110 transition-transform p-1"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 opacity-80">
             <Bot className="w-3 h-3" /> 

@@ -32,11 +32,19 @@ if not exist node_modules (
         )
 )
 
+rem Linting is optional in dev mode, but we run it to catch common issues early
+echo Linting code: npm run lint
+call npm run lint || goto :lint_failed
 echo Starting dev server: npm run dev
 rem Open browser shortly after starting dev server in background
-start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"
+start "" cmd /c "timeout /t 5 >nul & start http://localhost:3000"
 
 call npm run dev
 :install_failed
 echo Dependency installation failed. Fix errors and re-run this script.
-exit /b 1
+goto :lint_failed
+:lint_failed
+echo Linting failed. Fix errors and re-run this script.
+goto :eof
+:eof
+

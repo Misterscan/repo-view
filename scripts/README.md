@@ -19,3 +19,7 @@ A Windows batch executable that builds and runs the production version of the UI
 ## `start-ui.bat`
 A Windows batch for testing before deployment.
  - Automatically opens browser to `http://localhost:3000` once the server starts.
+
+*(Note: When developing custom helper scripts that write files via the API, absolute external writes will be blocked by default. You can enable them for dev loops by passing `ALLOW_EXTERNAL_WRITES=1`.)*
+
+

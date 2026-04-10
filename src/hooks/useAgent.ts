@@ -105,16 +105,16 @@ export function useAgent(
     }
   }, [messages, currentSessionId]);
 
-  const handleSend = async (viewModeSetter: (mode: 'chat' | 'file') => void) => {
-    if (!query.trim() || isThinking || !currentSessionId) return;
+  const handleSend = async (viewModeSetter: (mode: 'chat' | 'file') => void, attachments?: { name: string, mimeType: string, data: string }[]) => {
+    if ((!query.trim() && (!attachments || attachments.length === 0)) || isThinking || !currentSessionId) return;
     const q = query.trim();
     setQuery('');
-    setMessages(prev => [...prev, { role: 'user', text: q }]);
+    setMessages(prev => [...prev, { role: 'user', text: q, attachments }]);
     setIsThinking(true);
     viewModeSetter('chat');
 
     try {
-      const [qVec = []] = await embedTexts(CONFIG.embedModel, [q]);
+      const [qVec = []] = await embedTexts(CONFIG.embedModel, [q || (attachments ? `Uploaded ${attachments.length} files` : 'Uploaded files')]);
 
       // Web Worker for similarity calculation
       const ragWorker = new Worker(new URL('../workers/rag.worker.ts', import.meta.url), { type: 'module' });
@@ -130,6 +130,18 @@ export function useAgent(
 
       const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
       
+      // Add manual attachments from chat interface
+      if (attachments) {
+        attachments.forEach(att => {
+          parts.push({
+            inlineData: {
+              mimeType: att.mimeType,
+              data: att.data
+            }
+          });
+        });
+      }
+
       // Add Local Media as InlineData
       for (const m of mediaFiles) {
         if (!currentSessionId) continue;
@@ -159,6 +171,8 @@ export function useAgent(
                   # Core Directives
                   Use the provided CODE CONTEXT and ATTACHED FILES to answer.
                   - **File Modifications:** When suggesting code changes that the user can APPLY, you MUST provide the FULL and COMPLETE content of the file. Do not use placeholders or omit existing code, as the 'Apply' feature overwrites the entire target file.
+                  - **Target Paths:** Always use absolute file paths relative to the [SERVER REPOSITORY ROOT] provided in the prompt when suggesting where to apply modifications.
+                  - **Direct Writes:** Your primary mode of operation is to act as a coding agent that can read and write files directly. When the user asks you to modify code, start your code block with a comment containing the full target path: // File: [PATH] or # File: [PATH].
                   - **Date Awareness:** Use the current date as a reference point for all time-sensitive information.
                   - **Grounding & Citations:** ${groundingInstruction}
                   - **Uncertainty:** If current information is unavailable from the provided context, explicitly say so rather than guessing.
@@ -175,6 +189,15 @@ export function useAgent(
           }
         }
       };
+      
+      const serverSessionIdResponse = await fetch(`/api/repo/session-path/${currentSessionId}`);
+      if (serverSessionIdResponse.ok) {
+        const { path: serverPath } = await serverSessionIdResponse.json();
+        if (serverPath) {
+          parts.push({ text: `[SERVER REPOSITORY ROOT]: ${serverPath}` });
+        }
+      }
+
       const actualTokens = await countModelTokens(requestConfig).catch(() => estimatePartTokens(parts) + estimateTokens(systemInstructionText));
       setLastRequestTokens(actualTokens);
       

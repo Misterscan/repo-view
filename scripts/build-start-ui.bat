@@ -34,16 +34,16 @@ call npm run build || goto :build_failed
 echo Starting production server: npm run start
 rem Open browser shortly after starting prod server
 start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"
-setx REPOVIEW_VERBOSE 1
+set REPOVIEW_VERBOSE=1
 call npm run start
 goto :eof
 :install_failed
 echo Dependency installation failed. Fix errors and re-run this script.
-exit /b 1
 :lint_failed
 echo Linting failed. Fix errors and re-run this script.
-exit /b 1
+goto :eof
 :build_failed
 echo Build failed. Fix errors and re-run this script.
-exit /b 1
+:eof
+
 

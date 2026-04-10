@@ -7,7 +7,7 @@ setlocal
 pushd %~dp0\..\
 
 echo Starting production server: npm run start
-setx REPOVIEW_VERBOSE 1
+set REPOVIEW_VERBOSE=1
 call npm run start
 rem Open browser shortly after starting prod server in background
 start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"

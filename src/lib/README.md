@@ -19,4 +19,4 @@ Standardized API interaction utility.
 - Handles edge cases where missing JSON or misconfigured endpoints return HTML, providing context-aware error messages.
 
 ## `constants.ts` & `utils.ts`
-Standardized configurations, extension filtering arrays (`IGNORED_EXTS`), Tailwind class merging functionality (`cn()`), and other immutable logic blocks.
+Standardized configurations, shared global constants (LLM limits), extension filtering arrays (`IGNORED_EXTS`), component helper functions (e.g., Tailwind class merging functionality `cn()`), and other immutable logic blocks.

@@ -1,18 +1,22 @@
 import { useEffect } from 'react';
+import JSZip from 'jszip';
 import { ChunkDoc, ExtendedFile } from '../types';
 import { CONFIG, IGNORED_DIRS, IGNORED_EXTS } from '../lib/constants';
 import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
+import { readApiResult } from '../lib/api';
 import { 
   getSessions, 
   getSession,
   getSessionFiles, 
   getSessionFileContent, 
+  getSessionFileBlob,
   getSessionEmbeddings, 
   createSession, 
   deleteSession,
   saveSessionFiles, 
   saveSessionEmbeddings, 
-  updateSessionUris, 
+  updateSessionUris,
+  updateSessionServerUploadId,
 } from '../lib/db';
 import { useIndexerState } from '../store/appState';
 
@@ -44,6 +48,14 @@ export function useIndexer() {
     uploadedUris,
     setUploadedUris,
   } = useIndexerState();
+
+  const resetState = () => {
+    setCurrentSessionId(null);
+    setFiles([]);
+    setDb([]);
+    setUploadedUris([]);
+    setIndexState('Ready');
+  };
 
   // DB Load Sessions on Mount
   useEffect(() => {
@@ -198,15 +210,18 @@ export function useIndexer() {
         const isEmbeddable = (geminiMime.startsWith('text/') || geminiMime === 'application/json') && blobText.length < CONFIG.maxEmbeddingBytes;
         const isMedia = geminiMime.startsWith('image/');
 
-        // 1. Upload to Files API (Text only)
-        if (blobText && !isMedia) {
+        // 1. Upload to Files API (Text only) - Only if not already uploaded
+        const alreadyUploaded = uploadedUris.find(u => u.name === fNode.name && u.size === blobText.length);
+        if (blobText && !isMedia && !alreadyUploaded) {
           try {
             // Reconstruct a File for Gemini Upload
             const fileBlob = new File([blobText], fNode.name, { type: geminiMime });
             const uri = await uploadFileToGemini(fileBlob, geminiMime);
             newUris.push({ uri, name: fNode.name, mimeType: geminiMime, size: blobText.length });
-            await updateSessionUris(currentSessionId, newUris);
+            await updateSessionUris(currentSessionId, [...uploadedUris, ...newUris]);
           } catch (e) { console.warn("Files API error", e); }
+        } else if (alreadyUploaded) {
+          newUris.push(alreadyUploaded);
         }
 
         // 2. RAG Chunking
@@ -226,6 +241,35 @@ export function useIndexer() {
       }
 
       await saveSessionEmbeddings(currentSessionId, newDb);
+
+      // --- SERVER SYNC START ---
+      // After successful indexing, ensure the server has these files in server_uploads
+      try {
+        const zip = new JSZip();
+        for (const node of files) {
+          const content = await getSessionFileContent(currentSessionId, node.path);
+          if (content) {
+            zip.file(node.path, content);
+          } else {
+            // fallback to blob if content not in text store
+            const blob = await getSessionFileBlob(currentSessionId, node.path);
+            if (blob) zip.file(node.path, blob);
+          }
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const form = new FormData();
+        const sessionName = sessions.find(s => s.id === currentSessionId)?.name || 'index-sync';
+        form.append('file', zipBlob, `${sessionName}.zip`);
+        
+        const resp = await fetch('/api/repo/upload', { method: 'POST', body: form });
+        const data = await readApiResult<{ sessionId?: string }>(resp, 'Server sync failed during indexing');
+        if (data.sessionId) {
+          await updateSessionServerUploadId(currentSessionId, data.sessionId);
+        }
+      } catch (syncErr) {
+        console.warn("Failed to sync indexed files to server disk:", syncErr);
+      }
+      // --- SERVER SYNC END ---
 
       setDb(newDb);
       setUploadedUris(newUris);
@@ -256,5 +300,7 @@ export function useIndexer() {
     uploadFiles,
     createSessionFromImportedFiles,
     startIndexing,
+    resetState,
+    updateSessionServerUploadId
   };
 }

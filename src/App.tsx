@@ -95,7 +95,7 @@ function WelcomeScreen({
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="text-[0.72rem] font-black uppercase tracking-[0.32em] text-[var(--accent)]">
-                repoview version 1.3.3
+                repoview version 1.3.4
               </div>
               <h1 className="text-4xl font-black uppercase tracking-tight text-[var(--text-main)] md:text-6xl">
                 Welcome to repoview
@@ -195,7 +195,8 @@ function WorkspaceApp() {
     handleReupload,
     uploadFiles,
     createSessionFromImportedFiles,
-    startIndexing
+    startIndexing,
+    resetState
   } = useIndexer();
 
   const [repoChangedFiles, setRepoChangedFiles] = useState<ChangedRepoFile[] | null>(null);
@@ -360,15 +361,51 @@ function WorkspaceApp() {
     if (!files || files.length === 0) return;
     try {
       const zip = new JSZip();
+      let folderName = '';
+      let resolvedFolderName = false;
+
+      // First pass: collect files and try to resolve a folder name from webkitRelativePath
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (isIgnoredUpload(file)) continue;
         const relativePath = file.webkitRelativePath || file.name;
-        // Keep the full relative path so it perfectly maps to the IndexDB hashes!
+        if (!resolvedFolderName && file.webkitRelativePath) {
+          const parts = file.webkitRelativePath.split('/');
+          if (parts[0]) {
+            folderName = parts[0];
+            resolvedFolderName = true;
+          }
+        }
         if (relativePath) zip.file(relativePath, file);
       }
+
+      // Fallback: derive from first non-ignored file name
+      if (!resolvedFolderName) {
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          if (isIgnoredUpload(f)) continue;
+          if (f.webkitRelativePath) {
+            const parts = f.webkitRelativePath.split('/');
+            if (parts[0]) {
+              folderName = parts[0];
+              resolvedFolderName = true;
+              break;
+            }
+          }
+          // use file name without extension
+          const nameOnly = f.name.replace(/\.[^/.]+$/, '');
+          if (nameOnly) {
+            folderName = nameOnly;
+            resolvedFolderName = true;
+            break;
+          }
+        }
+      }
+
+      if (!folderName) folderName = `Upload-${Date.now()}`;
+
       const blob = await zip.generateAsync({ type: 'blob' });
-      await handleServerUploadCompare(blob, 'folder-sync.zip');
+      await handleServerUploadCompare(blob, `${folderName}.zip`);
     } catch (e: any) {
       alert('Folder sync failed: ' + e.message);
     }
@@ -426,6 +463,7 @@ function WorkspaceApp() {
         onUploadRepoFolder={onUploadRepoFolder}
         onStartIndexing={handleStartIndexing}
         onStartFullReview={startFullReview}
+        onNewSession={resetState}
         isThinking={isThinking}
         sessions={sessions}
         currentSessionId={currentSessionId}
@@ -461,9 +499,10 @@ function WorkspaceApp() {
         indexState={indexState}
         useGrounding={useGrounding}
         setUseGrounding={setUseGrounding}
-        onSend={() => handleSend(setViewMode)}
+        onSend={(attachments) => handleSend(setViewMode, attachments)}
         onDeleteMessage={deleteMessage}
         onClear={clearMessages}
+        currentSessionId={currentSessionId}
       />
 
       {showTerminal && <Terminal onClose={() => setShowTerminal(false)} />}

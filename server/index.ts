@@ -102,17 +102,43 @@ function shouldIgnoreImportPath(relativePath: string) {
   return IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
 }
 
-function resolvePathUnderRoot(requestedPath: string): string {
+let allowExternalWrites = String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === '1' || String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === 'true';
+const externalWriteSecret = String(process.env.EXTERNAL_WRITE_SECRET || '');
+const approvalsFile = path.resolve(rootDir, 'logs', 'external-write-approvals.jsonl');
+
+async function persistEnvVar(key: string, value: string) {
+  const envPath = path.resolve(rootDir, '.env');
+  try {
+    const content = await fs.readFile(envPath, 'utf8').catch(() => '');
+    const lines = content.split(/\r?\n/).filter(() => true);
+    const others = lines.filter((l) => !l.startsWith(key + '='));
+    others.push(`${key}=${value}`);
+    await fs.writeFile(envPath, others.join('\n'));
+  } catch (e) {
+    // best-effort only
+    console.warn('[repoview] Failed to persist .env', e);
+  }
+}
+
+function resolvePathUnderRoot(requestedPath: string, customRoot?: string): string {
   const trimmed = String(requestedPath || '').trim();
   if (!trimmed) {
     throw new Error('filePath is required');
   }
+
+  // If external writes are explicitly allowed via env, accept absolute paths.
   if (path.isAbsolute(trimmed)) {
-    throw new Error('Absolute paths are not allowed');
+    if (!allowExternalWrites) {
+      throw new Error('Absolute paths are not allowed');
+    }
+    return path.normalize(trimmed);
   }
 
-  const resolved = path.resolve(rootDir, trimmed);
-  const rel = path.relative(rootDir, resolved);
+  const base = customRoot || rootDir;
+  const resolved = path.resolve(base, trimmed);
+
+  // Prevent path traversal out of base
+  const rel = path.relative(base, resolved);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error('Path escapes the allowed root directory');
   }
@@ -122,13 +148,87 @@ function resolvePathUnderRoot(requestedPath: string): string {
 
 app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
   try {
-    const { filePath, content } = req.body || {};
+    const { filePath, content, sessionId } = req.body || {};
     const requested = String(filePath || 'temp_saved_file.txt');
-    const fullPath = resolvePathUnderRoot(requested);
+    
+    let customRoot = rootDir;
+    if (sessionId) {
+      customRoot = path.join(rootDir, 'server_uploads', String(sessionId));
+    }
 
+    const fullPath = resolvePathUnderRoot(requested, customRoot);
+
+    // If this write targets a path outside the customRoot, require explicit approval
+    const isOutsideBase = (() => {
+      try {
+        const rel = path.relative(customRoot, fullPath);
+        return rel.startsWith('..') || path.isAbsolute(rel);
+      } catch {
+        return false;
+      }
+    })();
+
+    if (isOutsideBase) {
+      if (!allowExternalWrites) {
+        json(res, 403, { error: 'External writes are disabled. Set ALLOW_EXTERNAL_WRITES to enable.' });
+        return;
+      }
+
+      // Check secret header first
+      const provided = String(req.header('x-external-write-secret') || '');
+      if (externalWriteSecret && provided === externalWriteSecret) {
+        // allowed
+      } else {
+        // Check approvals file for an explicit approval for this path
+        const approved = await fs.readFile(approvalsFile, 'utf8').catch(() => '');
+        const lines = approved.split(/\r?\n/).filter(Boolean);
+        const found = lines.some(l => {
+          try { const o = JSON.parse(l); return o && o.path && path.resolve(o.path) === path.resolve(fullPath); } catch { return false; }
+        });
+        if (!found) {
+          json(res, 403, { error: 'External write not approved. Provide x-external-write-secret or add an approval via /api/write-approve.' });
+          return;
+        }
+      }
+    }
+
+    // Ensure directory
     const dir = path.dirname(fullPath);
     await fs.mkdir(dir, { recursive: true });
+
+    // Audit/logging: ensure logs dir exists
+    const logsDir = path.resolve(rootDir, 'logs');
+    await fs.mkdir(logsDir, { recursive: true }).catch(() => null);
+    const auditLog = path.join(logsDir, 'file-writes.log');
+
+    // If target exists, create a timestamped backup before overwriting
+    const exists = await fs.stat(fullPath).then(() => true).catch(() => false);
+    if (exists) {
+      const backupDir = path.join(logsDir, 'backups');
+      await fs.mkdir(backupDir, { recursive: true }).catch(() => null);
+      const bakName = `${path.basename(fullPath)}.bak.${Date.now()}`;
+      const bakPath = path.join(backupDir, bakName);
+      try {
+        await fs.copyFile(fullPath, bakPath);
+      } catch (e) {
+        // best-effort backup; log but do not abort
+        await fs.appendFile(auditLog, `${new Date().toISOString()} WARN: failed to backup ${fullPath} -> ${bakPath}: ${String(e)}\n`).catch(() => null);
+      }
+    }
+
+    // Perform write
     await fs.writeFile(fullPath, String(content ?? ''));
+
+    // Append audit entry
+    const entry = {
+      time: new Date().toISOString(),
+      path: fullPath,
+      sessionId: sessionId || null,
+      ip: req.ip || null,
+      userAgent: req.headers['user-agent'] || null,
+    };
+    await fs.appendFile(auditLog, JSON.stringify(entry) + '\n').catch(() => null);
+
     json(res, 200, { success: true, path: fullPath });
   } catch (error: any) {
     console.error('File write error:', error);
@@ -142,13 +242,19 @@ app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
 
 app.post('/api/read-file', fileOpsLimiter, async (req, res) => {
   try {
-    const requested = String(req.body?.filePath || '').trim();
+    const { filePath, sessionId } = req.body || {};
+    const requested = String(filePath || '').trim();
     if (!requested) {
       json(res, 400, { error: 'filePath is required' });
       return;
     }
 
-    const fullPath = resolvePathUnderRoot(requested);
+    let customRoot = rootDir;
+    if (sessionId) {
+      customRoot = path.join(rootDir, 'server_uploads', String(sessionId));
+    }
+
+    const fullPath = resolvePathUnderRoot(requested, customRoot);
 
     try {
       const content = await fs.readFile(fullPath, 'utf8');
@@ -365,4 +471,73 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[repoview] Unhandled rejection:', reason);
   shutdown('unhandledRejection');
+});
+
+// Approvals API: record an approved external write path. Protected by existing API auth.
+app.post('/api/write-approve', apiLimiter, async (req, res) => {
+  try {
+    const { path: approvePath, note } = req.body || {};
+    if (!approvePath) {
+      json(res, 400, { error: 'path is required' });
+      return;
+    }
+    const logsDir = path.resolve(rootDir, 'logs');
+    await fs.mkdir(logsDir, { recursive: true }).catch(() => null);
+    const entry = { time: new Date().toISOString(), path: String(approvePath), note: note || null };
+    await fs.appendFile(approvalsFile, JSON.stringify(entry) + '\n').catch(() => null);
+    json(res, 200, { ok: true, entry });
+  } catch (error: any) {
+    console.error('Approval error:', error);
+    json(res, 500, { error: error?.message || 'Failed to add approval' });
+  }
+});
+
+// Settings endpoints: read/update external writes flag
+app.get('/api/settings/external-writes', apiLimiter, async (_req, res) => {
+  try {
+    json(res, 200, { enabled: Boolean(allowExternalWrites) });
+  } catch (e: any) {
+    json(res, 500, { error: String(e?.message || e) });
+  }
+});
+
+app.post('/api/settings/external-writes', apiLimiter, async (req, res) => {
+  try {
+    const enabled = Boolean(req.body?.enabled);
+    allowExternalWrites = enabled;
+    process.env.ALLOW_EXTERNAL_WRITES = enabled ? '1' : '0';
+    // persist to .env for convenience (best-effort)
+    await persistEnvVar('ALLOW_EXTERNAL_WRITES', enabled ? '1' : '0');
+    json(res, 200, { ok: true, enabled });
+  } catch (e: any) {
+    json(res, 500, { error: String(e?.message || e) });
+  }
+});
+
+// Logs and backups listing
+app.get('/api/logs/file-writes', apiLimiter, async (_req, res) => {
+  try {
+    const logsDir = path.resolve(rootDir, 'logs');
+    const auditLog = path.join(logsDir, 'file-writes.log');
+    const content = await fs.readFile(auditLog, 'utf8').catch(() => '');
+    const tail = content.split(/\r?\n/).filter(Boolean).slice(-200);
+    json(res, 200, { entries: tail });
+  } catch (e: any) {
+    json(res, 500, { error: String(e?.message || e) });
+  }
+});
+
+app.get('/api/logs/backups', apiLimiter, async (_req, res) => {
+  try {
+    const backupDir = path.resolve(rootDir, 'logs', 'backups');
+    const files = await fs.readdir(backupDir).catch(() => []);
+    const items = await Promise.all(files.map(async (f) => {
+      const p = path.join(backupDir, f);
+      const s = await fs.stat(p).catch(() => null);
+      return s ? { name: f, path: p, size: s.size, mtime: s.mtime } : null;
+    }));
+    json(res, 200, { backups: items.filter(Boolean) });
+  } catch (e: any) {
+    json(res, 500, { error: String(e?.message || e) });
+  }
 });

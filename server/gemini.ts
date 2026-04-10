@@ -97,7 +97,21 @@ export function registerGeminiRoutes(app: Express, geminiApiKey: string) {
         return;
       }
 
-      const result = await getGeminiClient(geminiApiKey).models.countTokens({ model, contents, config });
+      // Gemini countTokens API does not support systemInstruction or tools in the config.
+      // We must move systemInstruction to contents if present.
+      const processedContents = [...contents];
+      if (config?.systemInstruction?.parts) {
+        processedContents.unshift({
+          role: 'user',
+          parts: config.systemInstruction.parts
+        });
+      }
+
+      const result = await getGeminiClient(geminiApiKey).models.countTokens({ 
+        model, 
+        contents: processedContents, 
+        config: { ...config, systemInstruction: undefined, tools: undefined } 
+      });
       json(res, 200, { totalTokens: result.totalTokens });
     } catch (error: any) {
       console.error('Gemini countTokens error:', error);

@@ -17,21 +17,25 @@ The main application entry point orchestrating top-level state and routing.
 - Handles the two-step zip upload flow: first comparing changes visually via a Reindex diff modal, then executing the server-side extraction and update.
 - Passes token estimation metrics from the hooks directly into the UI components.
 
-### `FileViewer.tsx`
-A highly dynamic and reactive display window.
-- Renders standard code using stylized `<pre><code>` blocks.
-- Uses `<iframe>` tags to safely render valid `HTML` files and `PDFs`.
-- Embeds native HTML5 media elements (`<img>`, `<video>`) dynamically resolving blob URLs.
-
 ### `Sidebar.tsx`
-The navigational spine of the application.
-- Handles user inputs for new folder/repository uploads.
-- Displays `indexState` progress natively inside the panel.
-- Controls session switching capabilities allowing the user to seamlessly navigate between past loaded repositories.
-- Hosts the GitHub integration panel for GitHub repository search, clone/import into a local folder with live progress logs, local git status, changed-file diff viewing, commit/pull/push/checkout actions, branch creation and switching, open pull requests, open issues, and recent GitHub Actions runs.
-- The GitHub panel uses a single token for multiple operations, but different features require different GitHub permissions. Clone/import of private repositories needs `Contents: Read`, while Actions, PRs, and Issues require their own read permissions and can independently fail with `GitHub API returned 403`.
+The primary navigation and control panel.
+- Handles workspace initialization (folder/zip uploads) and session switching (`RepoSession`).
+- Displays indexing progress naturally.
+- Hosts the GitHub integration panel (repository search, cloning with progress logs, git branch/diff status, actions like commit/pull/push, and GitHub Actions/Issues/PRs). Note: Clone/import needs `Contents: Read`, while other GitHub APIs require `Actions: Read` or `Issues: Read`.
+- Contains global toggles like External Writes configuration and Terminal view.
 
 ### `Terminal.tsx`
-A crucial feature for agentic workflows.
+A persistent, WebSocket-backed terminal for agentic workflows.
 - Implements `xterm.js` and `xterm-addon-fit`.
-- Establishes a raw WebSocket connection (`ws://`) to the Express dev server to stream real-time standard output (stdout) and error (stderr) from a persistent local `powershell.exe` instance.
+- Establishes a raw WebSocket connection (`ws://`) to the Express dev server to stream real-time output (stdout/stderr) from a persistent local `powershell.exe` instance.
+- Enables running test suites or project specific commands seamlessly in the UI.
+
+### `FileViewer.tsx`
+A multi-format document preview pane.
+- Renders code using stylized `<pre><code>` blocks.
+- Uses `<iframe>` tags to safely render structural output, layout tests, and `PDFs`.
+- Embeds native HTML5 media elements (`<img>`, `<video>`) natively resolving Blob URLs.
+
+### `FileTree.tsx`
+Recursively renders the folder and file hierarchy of the active repository session.
+- Provides click-to-preview functionality directly integrating with the active selected `FileNode` state.

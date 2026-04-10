@@ -14,6 +14,11 @@ export interface FileNode {
 export interface Message {
   role: 'user' | 'model' | 'ai';
   text: string;
+  attachments?: {
+    name: string;
+    mimeType: string;
+    data: string; // base64
+  }[];
 }
 
 export interface ChunkDoc {

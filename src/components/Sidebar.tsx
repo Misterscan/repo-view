@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Bot, Code2, FolderSync, Loader2, Search, History, Database, Upload, GitBranch, RefreshCw, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Bot, FolderSync, FolderPlus, Loader2, Search, History, Database, Upload, GitBranch, RefreshCw, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { FileNode, GitChangedFile, GitHubInspection, GitHubRepoSearchResult } from '../types';
 import { FileTreeItem } from './FileTree';
 import { RepoSession } from '../lib/db';
@@ -37,6 +37,7 @@ interface SidebarProps {
   onStartIndexing: () => void;
   onStartFullReview: () => void;
   isThinking: boolean;
+  onNewSession: () => void;
   sessions: RepoSession[];
   currentSessionId: string | null;
   onLoadSession: (id: string) => void;
@@ -75,6 +76,7 @@ export function Sidebar({
   onStartIndexing, 
   onStartFullReview, 
   isThinking, 
+  onNewSession,
   sessions, 
   currentSessionId, 
   onLoadSession,
@@ -117,6 +119,9 @@ export function Sidebar({
   const [cloneResult, setCloneResult] = useState<string | null>(null);
   const [cloneLogs, setCloneLogs] = useState<string[]>([]);
   const [localImportBusy, setLocalImportBusy] = useState(false);
+  const [externalWritesEnabled, setExternalWritesEnabled] = useState<boolean | null>(null);
+  const [showWriteLogs, setShowWriteLogs] = useState(false);
+  const [writeLogs, setWriteLogs] = useState<string[]>([]);
   const [isGitHubPanelOpen, setIsGitHubPanelOpen] = useState(true);
 
   const tree = buildTree(files);
@@ -266,6 +271,42 @@ export function Sidebar({
     setShowRepoDropdown(false);
   };
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const resp = await fetch('/api/settings/external-writes');
+        const data = await readApiResult<{ enabled?: boolean }>(resp, 'Failed to load settings');
+        if (mounted) setExternalWritesEnabled(Boolean(data.enabled));
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const toggleExternalWrites = async () => {
+    try {
+      const next = !externalWritesEnabled;
+      const resp = await fetch('/api/settings/external-writes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: next }) });
+      const data = await readApiResult<{ enabled?: boolean }>(resp, 'Failed to update setting');
+      setExternalWritesEnabled(Boolean(data.enabled));
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  };
+
+  const loadWriteLogs = async () => {
+    try {
+      const resp = await fetch('/api/logs/file-writes');
+      const data = await readApiResult<{ entries?: string[] }>(resp, 'Failed to load write logs');
+      setWriteLogs(data.entries || []);
+      setShowWriteLogs(true);
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  };
+
   const openRepoDropdown = async () => {
     if (!repoSearchResults.length) {
       await searchRepos();
@@ -282,10 +323,16 @@ export function Sidebar({
             <div className="repoview-logo-wrapper" aria-hidden>
               <img src="/logo.png" alt="repoview" className="repoview-logo" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} onClick={() => window.open('https://github.com/Misterscan/repo-view', '_blank')} />
             </div>
-            <Code2 className="w-5 h-5" />
             <span>📑repoview👁️</span>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => { onNewSession(); setShowSessions(false); }} 
+              className="p-1.5 rounded-md border border-[var(--accent)]/30 text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all"
+              title="New Workspace"
+            >
+              <FolderPlus className="w-4 h-4" />
+            </button>
             <button 
               onClick={onToggleTerminal} 
               className={cn("p-1.5 rounded-md border transition-all", terminalActive ? "bg-[var(--accent)] text-black border-[var(--accent)] shadow-[0_0_15px_var(--accent)]" : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent)]")}
@@ -306,12 +353,26 @@ export function Sidebar({
         <div className="flex flex-col gap-3">
           {/* Unified Workspace Action */}
           <div className="flex flex-col gap-2">
-            <button 
-              onClick={() => syncDirInputRef.current?.click()} 
-              className="w-full py-2.5 bg-[var(--accent)] text-black rounded-md text-[0.7rem] uppercase font-black tracking-wider shadow-[0_0_10px_var(--accent)] hover:opacity-90 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
-            >
-              <FolderSync className="w-4 h-4" /> Open Folder
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => dirInputRef.current?.click()}
+                className="py-2.5 bg-[var(--accent)] text-black rounded-md text-[0.65rem] uppercase font-black tracking-wider shadow-[0_0_10px_var(--accent)] hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                title="Open Folder (Import) — import files into a new session"
+              >
+                <FolderPlus className="w-4 h-4" />
+                <span className="text-[0.7rem]">Open Folder<br/>(Import)</span>
+              </button>
+
+              <button
+                onClick={() => syncDirInputRef.current?.click()}
+                className="py-2.5 bg-[#0b2b24] text-[var(--text-muted)] border border-[var(--border)] rounded-md text-[0.65rem] uppercase font-black tracking-wider hover:text-[var(--accent)] hover:border-[var(--accent)] transition-all flex items-center justify-center gap-2"
+                title="Import & Compare (Sync) — upload and compare against server"
+              >
+                <FolderSync className="w-4 h-4" />
+                <span className="text-[0.7rem]">Import & Compare<br/>(Sync)</span>
+              </button>
+            </div>
+
             <div className="flex gap-2">
               <button 
                 onClick={() => zipInputRef.current?.click()} 
@@ -726,12 +787,35 @@ export function Sidebar({
           </>
         )}
       </div>
+      <div className="p-3 border-t border-[var(--border)] space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-[0.65rem] font-bold">External Writes</div>
+          <div className="text-[0.65rem] text-[var(--text-muted)]">{externalWritesEnabled === null ? '...' : externalWritesEnabled ? 'Enabled' : 'Disabled'}</div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={toggleExternalWrites} className="flex-1 rounded-md border px-3 py-2 text-[0.65rem] font-bold text-[var(--text-main)] hover:border-[var(--accent)]">
+            {externalWritesEnabled ? 'Disable External Writes' : 'Enable External Writes'}
+          </button>
+          <button onClick={loadWriteLogs} className="rounded-md border px-3 py-2 text-[0.65rem] font-bold text-[var(--text-muted)] hover:border-[var(--accent)]">View Write Logs</button>
+        </div>
 
-      <div className="p-3 border-t border-[var(--border)]">
-        <button onClick={onStartFullReview} disabled={isThinking || files.length === 0} className="w-full py-2 rounded-md border border-[var(--accent)]/30 text-[var(--accent)] text-[0.6rem] uppercase font-black tracking-widest hover:bg-[var(--accent)]/10 transition-all disabled:opacity-20 flex items-center justify-center gap-2">
-          <Search className="w-3 h-3" /> Audit Repository
-        </button>
+        {showWriteLogs && (
+          <div className="rounded border border-[var(--border)] bg-[#04100c] px-2 py-2 text-[0.62rem] max-h-40 overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-bold">Write Logs</div>
+              <button onClick={() => setShowWriteLogs(false)} className="text-[var(--text-muted)]">Close</button>
+            </div>
+            {writeLogs.length === 0 ? <div className="text-[var(--text-muted)]">No recent entries</div> : writeLogs.map((l, i) => <pre key={i} className="text-[0.6rem] font-mono whitespace-pre-wrap">{l}</pre>)}
+          </div>
+        )}
+
+        <div>
+          <button onClick={onStartFullReview} disabled={isThinking || files.length === 0} className="w-full py-2 rounded-md border border-[var(--accent)]/30 text-[var(--accent)] text-[0.6rem] uppercase font-black tracking-widest hover:bg-[var(--accent)]/10 transition-all disabled:opacity-20 flex items-center justify-center gap-2">
+            <Search className="w-3 h-3" /> Audit Repository
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+

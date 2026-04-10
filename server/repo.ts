@@ -46,6 +46,38 @@ export function registerRepoRoutes(app: Express, rootDir: string) {
     }
   });
 
+  app.get('/api/repo/session-path/:sessionId', async (req: Request, res: Response) => {
+    try {
+      const sessionIdRaw = String(req.params.sessionId || '').trim();
+      if (!/^\d+$/.test(sessionIdRaw)) {
+        res.status(400).json({ error: 'Invalid sessionId' });
+        return;
+      }
+
+      const uploadsDir = path.join(rootDir, 'server_uploads');
+      const sessionDir = path.join(uploadsDir, sessionIdRaw);
+      
+      const stat = await fs.stat(sessionDir).catch(() => null);
+      if (!stat || !stat.isDirectory()) {
+        res.status(404).json({ error: 'Session directory not found' });
+        return;
+      }
+
+      // Check for a single subdirectory (the actual repo)
+      const entries = await fs.readdir(sessionDir, { withFileTypes: true });
+      const subdirs = entries.filter(e => e.isDirectory());
+      
+      let finalPath = sessionDir;
+      if (subdirs.length === 1) {
+        finalPath = path.join(sessionDir, subdirs[0].name);
+      }
+
+      res.json({ path: finalPath });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Failed to get session path' });
+    }
+  });
+
   app.post('/api/repo/compare', upload.single('file'), async (req: Request, res: Response) => {
     try {
       if (!req.file) {

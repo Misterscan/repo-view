@@ -12,5 +12,8 @@ export default defineConfig({
   },
   server: {
     hmr: process.env.DISABLE_HMR !== 'true',
+    watch: {
+      ignored: ['**/server_uploads/**', '**/demo-files/**'],
+    },
   },
 });
