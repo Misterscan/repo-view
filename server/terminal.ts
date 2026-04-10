@@ -3,11 +3,19 @@ import { type Server as HttpServer } from 'http';
 import { WebSocketServer } from 'ws';
 
 export function setupTerminal(httpServer: HttpServer, rootDir: string, devToken: string) {
-  let shell = spawn('powershell.exe', ['-NoLogo'], { cwd: rootDir, stdio: ['pipe', 'pipe', 'pipe'] });
+  const isWindows = process.platform === 'win32';
+  const command = isWindows ? 'powershell.exe' : (process.env.SHELL || 'zsh');
+  const args = isWindows ? ['-NoLogo'] : [];
+
+  let shell = spawn(command, args, { cwd: rootDir, stdio: ['pipe', 'pipe', 'pipe'] });
 
   shell.on('error', (error) => {
     console.error('Shell spawn error:', error);
-    shell = spawn('cmd.exe', [], { cwd: rootDir, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (isWindows) {
+      shell = spawn('cmd.exe', [], { cwd: rootDir, stdio: ['pipe', 'pipe', 'pipe'] });
+    } else {
+      shell = spawn('sh', [], { cwd: rootDir, stdio: ['pipe', 'pipe', 'pipe'] });
+    }
   });
 
   const cleanupShell = () => {

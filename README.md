@@ -65,7 +65,7 @@ flowchart TD
 *   **GitHub Integration:** Search your GitHub repositories, clone one directly into a local destination folder with live progress output, then inspect branch state, create or switch branches, commit, pull, push, review changed-file diffs, browse open pull requests and issues, and inspect recent GitHub Actions runs from the sidebar.
 
 ### 🖥️ Persistent Shell Session
-*   **Stateful WebSocket Shell:** A built-in terminal (powered by `xterm.js` and `pwsh`) that stays alive. Running `.\\venv\\Scripts\\activate.ps1` or setting environment variables will persist for your entire session.
+*   **Stateful WebSocket Shell:** A built-in terminal (powered by `xterm.js`) that stays alive. It automatically uses your default shell (`zsh`/`bash` on Mac, `pwsh`/`cmd` on Windows). Setting environment variables or running scripts will persist for your entire session.
 *   **Seamless Integration:** Minimize or maximize the shell directly above your workflow—perfect for testing the code changes you just applied through the UI.
 
 ### 📁 Advanced File Visualization
@@ -91,8 +91,10 @@ flowchart TD
 
 ## 🚀 Quick Start Guide
 
-### The Easiest Ways (Windows Only)
-If you are on Windows, you can simply run the included batch scripts. These will automatically detect your package manager, install dependencies if they are missing, start the development server (or production server), and open your browser:
+### The Easiest Ways (Windows & Mac)
+If you are on Windows or Mac, you can simply run the included helper scripts. These will automatically detect your package manager, install dependencies if they are missing, start the development server (or production server), and open your browser:
+
+#### Windows
 ```cmd
 .\scripts\dev-ui.bat
 ```
@@ -103,10 +105,27 @@ If you are on Windows, you can simply run the included batch scripts. These will
 .\scripts\start-ui.bat
 ```
 
+#### Mac/Linux
+You can run the `.sh` scripts from your terminal, or double-click the `.command` files on macOS:
+```bash
+# Terminal way
+./scripts/dev-ui.sh
+./scripts/build-start-ui.sh
+./scripts/start-ui.sh
+
+# Clickable Mac way
+scripts/dev-ui.command
+scripts/build-start-ui.command
+scripts/start-ui.command
+```
+
+> [!TIP]
+> If a script closes immediately when double-clicked, your Terminal environment might not have `node` in its default path. Try opening **Terminal**, dragging the `.sh` file into the window, and pressing **Enter** to see the error.
+
 ### Manual Setup
 
 #### 1. Prerequisites
-Ensure you have **Node.js 20+** installed on your machine and a local installation of **PowerShell** for terminal support.
+Ensure you have **Node.js 20+** installed on your machine. The internal terminal automatically supports **zsh/bash** on macOS/Linux and **PowerShell/cmd** on Windows.
 
 #### 2. Environment Variables
 Create a `.env` file in the root directory and add your Google Gemini API key and (optionally) a development protection token:

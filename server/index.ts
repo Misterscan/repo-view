@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 
 import express from 'express';
 import { promises as fs } from 'fs';
@@ -417,12 +418,12 @@ function startServer(startPort: number, attempts = 5) {
         setTimeout(() => startServer(nextPort, attempts - 1), 200);
         return;
       }
-      console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
-      console.error(`[repoview] To free the port, run (Windows):
-  netstat -ano | findstr :3000
-  taskkill /PID <pid> /F
-or (PowerShell):
-  Get-Process -Id <pid> | Stop-Process
+      console.error(`[repoview] to free the port, run (Mac/Linux):
+  sudo lsof -i :${tryPort}
+  kill -9 <PID>
+or (Windows):
+  netstat -ano | findstr :${tryPort}
+  taskkill /PID <PID> /F
 or restart your machine.`);
       process.exit(1);
     }
