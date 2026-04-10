@@ -33,6 +33,13 @@ if (!devToken) {
 const app = express();
 const httpServer = createServer(app);
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const fileOpsLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -48,7 +55,7 @@ const IGNORED_EXTS = [
 
 app.use(express.json({ limit: '50mb' }));
 
-app.use('/api', createVerifyApiAuth(devToken));
+app.use('/api', apiLimiter, createVerifyApiAuth(devToken));
 
 function shouldIgnoreImportPath(relativePath: string) {
   const normalized = relativePath.replace(/\\/g, '/');

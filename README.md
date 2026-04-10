@@ -4,6 +4,8 @@ repoview is a local-first coding workspace for exploring repositories, chatting 
 
 It combines a React + Vite frontend with an Express API, IndexedDB-backed local context, optional GitHub inspection tools, and Gemini-powered assistance.
 
+The local API is protected by same-origin or token-based auth and rate-limited by default, with stricter limits on high-impact file and repository mutation endpoints.
+
 ## Demo Screenshot
 
 ![repoview demo](docs/media/repoview-demo.png)
@@ -71,6 +73,7 @@ flowchart TD
 *   **Storage Layer:** `idb` (IndexedDB Wrapper) schema v2 for massive file blobs, embeddings, and chat histories.
 *   **Hygiene & Typing:** Full ESLint 9 (Flat Config) & `tsc` strict typescript toolchain (`npm run lint`).
 *   **Tooling/Middleware:** Vite Dev Server with custom HTTP REST (`/api/write-file`, `/api/repo/*`) and WebSocket Upgrades (`/api/terminal-ws`).
+*   **Server Safeguards:** API-wide request throttling via `express-rate-limit`, with lower per-route ceilings for filesystem writes and repository mutation flows.
 
 ---
 
@@ -99,6 +102,7 @@ Notes:
 - `GEMINI_API_KEY` is required for the local dev middleware that proxies requests to the Gemini API.
 - `REPOVIEW_DEV_TOKEN` is optional. If omitted, the dev server will generate a token at startup and print it to the console. The token is used to protect local `/api/*` endpoints from unauthorized cross-origin or programmatic access.
 - `GITHUB_TOKEN` is optional. If present, it is used for GitHub repository search, private repository clone/import, and sidebar GitHub API features such as Actions, pull requests, and issues.
+- Local `/api/*` traffic is rate-limited by default. High-impact endpoints such as file writes and repo mutation routes use stricter limits than the general API cap.
 
 #### GitHub Token Setup
 If you want to search private repositories, clone/import private repositories, or use the full sidebar GitHub panel, create a GitHub personal access token and place it in `.env` as `GITHUB_TOKEN`.
@@ -153,6 +157,12 @@ Build the client bundle and start the Express server serving `dist/`:
 npm run build
 npm run start
 ```
+
+## API Safety Defaults
+
+- All `/api/*` routes are protected by the local auth middleware. Same-origin requests are allowed automatically; cross-origin or scripted access must present the development token.
+- All `/api/*` routes are covered by a general rate limiter.
+- More sensitive routes, including filesystem operations and repository upload/delete flows, keep stricter per-route limits on top of the general API cap.
 
 ### Troubleshooting (PowerShell)
 
