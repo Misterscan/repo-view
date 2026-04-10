@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 
 import { createVerifyApiAuth, json } from './auth';
 import { registerGeminiRoutes } from './gemini';
@@ -32,6 +33,20 @@ if (!devToken) {
 const app = express();
 const httpServer = createServer(app);
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const fileOpsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', '__pycache__', 'venv', '.netlify', '.github', '.vercel', 'server_uploads']);
 const IGNORED_EXTS = [
   '.exe', '.dmg', '.app', '.dll', '.zip', '.tar.gz', '.pyc', '.log', 'env', '.env', 'logs', 'tmp', 'temp', 'package-lock.json', '.DS_Store', '.next',
@@ -40,7 +55,7 @@ const IGNORED_EXTS = [
 
 app.use(express.json({ limit: '50mb' }));
 
-app.use('/api', createVerifyApiAuth(devToken));
+app.use('/api', apiLimiter, createVerifyApiAuth(devToken));
 
 function shouldIgnoreImportPath(relativePath: string) {
   const normalized = relativePath.replace(/\\/g, '/');
@@ -52,15 +67,29 @@ function shouldIgnoreImportPath(relativePath: string) {
   return IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
 }
 
+function resolvePathUnderRoot(requestedPath: string): string {
+  const trimmed = String(requestedPath || '').trim();
+  if (!trimmed) {
+    throw new Error('filePath is required');
+  }
+  if (path.isAbsolute(trimmed)) {
+    throw new Error('Absolute paths are not allowed');
+  }
 
+  const resolved = path.resolve(rootDir, trimmed);
+  const rel = path.relative(rootDir, resolved);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('Path escapes the allowed root directory');
+  }
 
-app.post('/api/write-file', async (req, res) => {
+  return resolved;
+}
+
+app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
   try {
     const { filePath, content } = req.body || {};
-    const requested = filePath || 'temp_saved_file.txt';
-    
-    // Resolve absolute path or relative to rootDir
-    const fullPath = path.isAbsolute(requested) ? requested : path.resolve(rootDir, requested);
+    const requested = String(filePath || 'temp_saved_file.txt');
+    const fullPath = resolvePathUnderRoot(requested);
 
     const dir = path.dirname(fullPath);
     await fs.mkdir(dir, { recursive: true });
@@ -68,11 +97,15 @@ app.post('/api/write-file', async (req, res) => {
     json(res, 200, { success: true, path: fullPath });
   } catch (error: any) {
     console.error('File write error:', error);
+    if (error?.message === 'filePath is required' || error?.message === 'Absolute paths are not allowed' || error?.message === 'Path escapes the allowed root directory') {
+      json(res, 400, { error: error.message });
+      return;
+    }
     json(res, 500, { error: `Failed to write file: ${error.message}` });
   }
 });
 
-app.post('/api/read-file', async (req, res) => {
+app.post('/api/read-file', fileOpsLimiter, async (req, res) => {
   try {
     const requested = String(req.body?.filePath || '').trim();
     if (!requested) {
@@ -80,7 +113,7 @@ app.post('/api/read-file', async (req, res) => {
       return;
     }
 
-    const fullPath = path.isAbsolute(requested) ? requested : path.resolve(rootDir, requested);
+    const fullPath = resolvePathUnderRoot(requested);
 
     try {
       const content = await fs.readFile(fullPath, 'utf8');
@@ -94,6 +127,10 @@ app.post('/api/read-file', async (req, res) => {
     }
   } catch (error: any) {
     console.error('File read error:', error);
+    if (error?.message === 'filePath is required' || error?.message === 'Absolute paths are not allowed' || error?.message === 'Path escapes the allowed root directory') {
+      json(res, 400, { error: error.message });
+      return;
+    }
     json(res, 500, { error: `Failed to read file: ${error.message}` });
   }
 });

@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 
 export async function attachFrontend(opts: {
@@ -12,6 +13,13 @@ export async function attachFrontend(opts: {
   httpServer: any;
 }) {
   const { isDev, rootDir, distDir, indexHtmlPath, app, httpServer } = opts;
+
+  const frontendRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
   if (isDev) {
     const vite = await createViteServer({
@@ -25,7 +33,7 @@ export async function attachFrontend(opts: {
 
     app.use(vite.middlewares);
 
-    app.use(async (req, res, next) => {
+    app.use(frontendRateLimiter, async (req, res, next) => {
       if (req.originalUrl.startsWith('/api/')) {
         next();
         return;
@@ -48,7 +56,7 @@ export async function attachFrontend(opts: {
   }
 
   app.use(express.static(distDir));
-  app.get('*', (_req, res) => {
+  app.get('*', frontendRateLimiter, (_req, res) => {
     res.sendFile(path.join(distDir, 'index.html'));
   });
 }

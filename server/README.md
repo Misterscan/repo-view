@@ -6,14 +6,16 @@ This directory contains the Express.js backend that serves the AI interface and 
 
 ### `index.ts`
 The main entry point for the backend server.
-- Sets up the Express application with CORS, JSON parsing, and Multer for file uploads.
+- Sets up the Express application with JSON parsing, local API auth, and rate limiting.
 - Initializes API routes for file reading/writing (`/api/read-file`, `/api/write-file`), terminal WebSockets (`/api/terminal-ws`), and repository management.
 - Runs in both development (attached to Vite) and production modes.
+- Applies a general rate limiter to all `/api/*` routes before route registration.
 
 ### `repo.ts`
 Handles server-side repository zip extraction, persistence, and diffing.
 - **`/api/repo/compare`**: A dry-run endpoint that accepts a zip upload, extracts it in memory via `adm-zip`, computes SHA-256 hashes of the files, and compares them against the current server-side session to detect added, modified, or deleted files.
 - **`/api/repo/upload`**: The persistence endpoint. Extracts the zip into `server_uploads/<sessionId>` on the disk and updates the tracking `manifest.json`.
+- Mutation-oriented repo endpoints keep stricter per-route limits in addition to the general `/api/*` limiter.
 
 ### `github.ts`
 Handles local git inspection and GitHub API integration.
@@ -38,6 +40,7 @@ Manages the persistent WebSocket terminal sessions.
 The server maintains a local `server_uploads/` directory where it persists extracted repository files. This allows the backend to perform precise diffs and direct filesystem modifications without relying solely on the browser's IndexedDB.
 
 ## Environment Notes
+- All `/api/*` routes are rate-limited. File operations and repository mutation endpoints are intentionally capped more aggressively than general API reads.
 - Set `GITHUB_TOKEN` in the root `.env` file if you want the GitHub integration to search private repositories, clone/import private repositories, or fetch GitHub API data for the sidebar.
 - The same token is used for repository search, clone/import, GitHub Actions, pull requests, and issues.
 - Recommended fine-grained token permissions:
