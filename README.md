@@ -100,7 +100,7 @@ If you are on Windows, you can simply run the included batch scripts. These will
 .\scripts\build-start-ui.bat
 ```
 ```cmd
-.\script\start-ui.bat
+.\scripts\start-ui.bat
 ```
 
 ### Manual Setup
