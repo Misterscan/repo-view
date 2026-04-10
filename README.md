@@ -45,6 +45,8 @@ flowchart TD
     B <--> G[server_uploads session data]
 ```
 
+![workflow loop](docs/media/workflow-loop.svg)
+
 ---
 
 ## ✨ Key Features
