@@ -18,4 +18,4 @@ This directory contains standalone execution wrappers and utility scripts for Wi
 
 ---
 
-*(Note: When developing custom helper scripts that write files via the API, absolute external writes will be blocked by default. You can enable them for dev loops by passing `ALLOW_EXTERNAL_WRITES=1`.)*
+*(Note: When developing custom helper scripts that write files via the API, absolute external writes will be blocked by default. You can enable them for dev loops by passing `ALLOW_EXTERNAL_WRITES=true`.)*

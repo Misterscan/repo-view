@@ -237,7 +237,7 @@ npm run start
 
 For safety, external (absolute) writes are disabled by default. Use the following options to opt in or approve specific paths:
 
-- Enable at runtime or persistently: set `ALLOW_EXTERNAL_WRITES=1` in your `.env` or toggle at runtime via the UI Sidebar "External Writes" setting (calls `/api/settings/external-writes`). See the server handler in [server/index.ts](server/index.ts#L1).
+- Enable at runtime or persistently: set `ALLOW_EXTERNAL_WRITES=true` in your `.env` or toggle at runtime via the UI Sidebar "External Writes" setting (calls `/api/settings/external-writes`). See the server handler in [server/index.ts](server/index.ts#L1).
 - Approve a specific path: POST to `/api/write-approve` with JSON `{ "path": "C:\\absolute\\path\\to\\file", "note": "optional" }` (protected by the dev token). This appends an entry to `logs/external-write-approvals.jsonl`.
 - Secret header: set `EXTERNAL_WRITE_SECRET` and include `x-external-write-secret` with write requests to bypass per-path approvals.
 - Audit & backups: all overwrites create best-effort backups in `logs/backups` and append an audit entry to `logs/file-writes.log`.
