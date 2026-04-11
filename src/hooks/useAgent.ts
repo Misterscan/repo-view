@@ -3,7 +3,7 @@ import { Message, ChunkDoc } from '../types';
 import { embedTexts, estimateTokens, countModelTokens, generateModelContent } from '../lib/gemini';
 import { CONFIG } from '../lib/constants';
 import { ThinkingLevel } from '@google/genai';
-import { saveChatHistory, getChatHistory, getSessionFileBlob } from '../lib/db';
+import { saveChatHistory, getChatHistory, getSessionFileBlob, getSessions } from '../lib/db';
 import { useAgentState } from '../store/appState';
 
 function estimatePartTokens(parts: any[]) {
@@ -128,21 +128,33 @@ export function useAgent(
       const ragContext = relevant.filter(r => !r.isMedia).map(r => r.text).join("\n\n");
       const mediaFiles = relevant.filter(r => r.isMedia);
 
-      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
+      // Map history to Gemini format
+      const historyParts: any[] = messages.flatMap(m => {
+        const turnParts: any[] = [{ text: m.text }];
+        if (m.attachments) {
+          m.attachments.forEach(att => {
+            turnParts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
+          });
+        }
+        return { role: m.role === 'user' ? 'user' : 'model', parts: turnParts };
+      });
+
+      // Current turn context
+      const currentTurnParts: any[] = [];
       
-      // Add manual attachments from chat interface
+      // 1. Permanent session files (if any)
+      uploadedUris.forEach(f => {
+        currentTurnParts.push({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size });
+      });
+
+      // 2. New attachments from this message
       if (attachments) {
         attachments.forEach(att => {
-          parts.push({
-            inlineData: {
-              mimeType: att.mimeType,
-              data: att.data
-            }
-          });
+          currentTurnParts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
         });
       }
 
-      // Add Local Media as InlineData
+      // 3. Local media from RAG
       for (const m of mediaFiles) {
         if (!currentSessionId) continue;
         const blob = await getSessionFileBlob(currentSessionId, m.file);
@@ -154,16 +166,32 @@ export function useAgent(
           });
           const cleanBase64 = base64.split(',')[1];
           const safeMime = (m.mimeType === 'image/svg+xml' || m.mimeType === 'text/xml') ? 'text/plain' : (m.mimeType || 'image/jpeg');
-          parts.push({ inlineData: { mimeType: safeMime, data: cleanBase64 } });
+          currentTurnParts.push({ inlineData: { mimeType: safeMime, data: cleanBase64 } });
         }
       }
 
+      // 4. Server repository root (for absolute path awareness)
+      const session = await getChatHistory(currentSessionId).then(() => getSessions()).then(ss => ss.find(s => s.id === currentSessionId));
+      const serverId = session?.serverUploadSessionId;
+      
+      if (serverId) {
+        const serverSessionIdResponse = await fetch(`/api/repo/session-path/${serverId}`);
+        if (serverSessionIdResponse.ok) {
+          const { path: serverPath } = await serverSessionIdResponse.json();
+          if (serverPath) {
+            currentTurnParts.push({ text: `[SERVER REPOSITORY ROOT]: ${serverPath}` });
+          }
+        }
+      }
+
+      // 5. User query and RAG text context
       const fullPrompt = `[RAG TEXT CONTEXT]\n${ragContext}\n\n[USER QUERY]\n${q}`;
-      parts.push({ text: fullPrompt });
+      currentTurnParts.push({ text: fullPrompt });
 
       const groundingInstruction = useGrounding
         ? 'Use Google Search grounding when current external facts are needed, and cite the sources you used.'
         : 'Grounding is disabled. Do not claim that you performed web search; answer only from the provided repository context and state when external verification is unavailable.';
+      
       const systemInstructionText = `# Role & Objective
                   You are an expert coding agent dedicated to absolute factual accuracy. Your goal is to provide evidence-based answers derived exclusively from active web searches.
                   Current Date: ${new Date().toISOString()}
@@ -177,34 +205,29 @@ export function useAgent(
                   - **Grounding & Citations:** ${groundingInstruction}
                   - **Uncertainty:** If current information is unavailable from the provided context, explicitly say so rather than guessing.
                   Format your responses in clean Markdown.`;
+
       const requestConfig = {
         model: selectedModel,
-        contents: [{ role: 'user', parts }],
+        contents: [
+          ...historyParts,
+          { role: 'user', parts: currentTurnParts }
+        ],
         config: {
-          tools: useGrounding ? [{ googleSearch: {} }] : [] as any[],
+          tools: useGrounding ? [{ googleSearch: {} }] : [],
           temperature,
           thinkingConfig: { thinkingLevel: modelThinkingLevel },
-          systemInstruction: {
-            parts: [{ text: systemInstructionText }]
-          }
+          systemInstruction: { parts: [{ text: systemInstructionText }] }
         }
       };
       
-      const serverSessionIdResponse = await fetch(`/api/repo/session-path/${currentSessionId}`);
-      if (serverSessionIdResponse.ok) {
-        const { path: serverPath } = await serverSessionIdResponse.json();
-        if (serverPath) {
-          parts.push({ text: `[SERVER REPOSITORY ROOT]: ${serverPath}` });
-        }
-      }
-
-      const actualTokens = await countModelTokens(requestConfig).catch(() => estimatePartTokens(parts) + estimateTokens(systemInstructionText));
+      const totalParts = [...historyParts.flatMap(h => h.parts), ...currentTurnParts];
+      const actualTokens = await countModelTokens(requestConfig).catch(() => estimatePartTokens(totalParts) + estimateTokens(systemInstructionText));
       setLastRequestTokens(actualTokens);
       
       const resultText = await generateModelContent(requestConfig);
       setMessages(prev => [...prev, { role: 'ai', text: resultText || "No response." }]);
-    } catch (e: any) {
-      setMessages(prev => [...prev, { role: 'ai', text: `**Error:** ${e.message}` }]);
+    } catch (error: any) {
+      setMessages(prev => [...prev, { role: 'ai', text: `**Error:** ${error.message}` }]);
     } finally {
       setIsThinking(false);
     }
