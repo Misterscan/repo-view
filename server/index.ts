@@ -1,5 +1,3 @@
-import dotenv from 'dotenv';
-dotenv.config({ override: true });
 
 import express from 'express';
 import { promises as fs } from 'fs';
@@ -8,13 +6,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 
-import { createVerifyApiAuth, json } from './auth';
-import { registerGeminiRoutes } from './gemini';
-import { registerGitHubRoutes } from './github';
-import { setupTerminal } from './terminal';
-import { attachFrontend } from './frontend';
-import { registerRepoRoutes } from './repo';
+import { createVerifyApiAuth, json } from './auth.ts';
+import { registerGeminiRoutes } from './gemini.ts';
+import { registerGitHubRoutes } from './github.ts';
+import { setupTerminal } from './terminal.ts';
+import { attachFrontend } from './frontend.ts';
+import { registerRepoRoutes } from './repo.ts';
 import AdmZip from 'adm-zip';
+import { IGNORED_DIRS as IGNORED_DIRS_LIST, IGNORED_EXTS } from '../src/lib/constants.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,24 +82,77 @@ const fileOpsLimiter = rateLimit({
   legacyHeaders: false
 });
 
-const IGNORED_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode', 'dist', 'build', '__pycache__', 'venv', '.netlify', '.github', '.vercel', 'server_uploads']);
-const IGNORED_EXTS = [
-  '.exe', '.dmg', '.app', '.dll', '.zip', '.tar.gz', '.pyc', '.log', 'env', '.env', 'logs', 'tmp', 'temp', 'package-lock.json', '.DS_Store', '.next',
-  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.iso', '.bin', '.img', '.msi', '.deb', '.rpm'
-];
+const IGNORED_DIRS = new Set(IGNORED_DIRS_LIST);
 
 app.use(express.json({ limit: '50mb' }));
 
+const logsDir = path.join(process.cwd(), 'logs');
+fs.mkdir(logsDir, { recursive: true }).catch(() => { });
+
+async function logIgnoreDecision(type: string, filePath: string, result: boolean, reason: string) {
+  const logLine = `${new Date().toISOString()} [${type}] ${filePath} -> ${result} (${reason})\n`;
+  console.log(`[IGNORE_DECISION] ${type}: ${filePath} -> ${result} (${reason})`);
+  await fs.appendFile(path.join(logsDir, 'ignore-debug.log'), logLine).catch((e) => {
+    console.error('[IGNORE_DECISION] Failed to write log:', e.message);
+  });
+}
+
+// Client-side logging endpoint — no auth required, rate-limited
+app.post('/api/log', apiLimiter, async (req, res) => {
+  const entries: { type: string; filePath: string; result: boolean; reason: string }[] = req.body?.entries || [];
+  if (!entries.length) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  const type = entries[0].type || 'Browser-Upload';
+  const tallies = new Map<string, number>();
+
+  for (const e of entries) {
+    const key = `${e.result ? 'IGNORED' : 'ALLOWED'}|||${e.reason || 'none'}`;
+    tallies.set(key, (tallies.get(key) || 0) + 1);
+  }
+
+  const timestamp = new Date().toISOString();
+  let logOutput = `${timestamp} [${type}] --- BATCH REPORT (${entries.length} files) ---\n`;
+  console.log(`\n[IGNORE_BATCH] ${type} processed ${entries.length} files:`);
+
+  const sortedEntries = Array.from(tallies.entries()).sort((a, b) => b[1] - a[1]);
+  for (const [key, count] of sortedEntries) {
+    const [resultStr, reason] = key.split('|||');
+    const msg = `  -> ${resultStr}: ${count} files (${reason})`;
+    logOutput += `${msg}\n`;
+    console.log(msg);
+  }
+
+  await fs.appendFile(path.join(logsDir, 'ignore-debug.log'), logOutput + '\n').catch((e) => {
+    console.error('[IGNORE_DECISION] Failed to write log:', e.message);
+  });
+
+  res.status(200).json({ ok: true });
+});
+
 app.use('/api', apiLimiter, createVerifyApiAuth(devToken));
+
 
 function shouldIgnoreImportPath(relativePath: string) {
   const normalized = relativePath.replace(/\\/g, '/');
   const parts = normalized.split('/').filter(Boolean);
-  if (parts.some((part) => IGNORED_DIRS.has(part))) return true;
+  const partIgnored = parts.some((part) => IGNORED_DIRS.has(part.toLowerCase()));
+  if (partIgnored) {
+    void logIgnoreDecision('Server-Import', relativePath, true, 'part');
+    return true;
+  }
 
   const lowerPath = normalized.toLowerCase();
   const lowerName = parts[parts.length - 1]?.toLowerCase() || lowerPath;
-  return IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
+  const extIgnored = IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
+  if (extIgnored) {
+    void logIgnoreDecision('Server-Import', relativePath, true, 'extension/name');
+    return true;
+  }
+  void logIgnoreDecision('Server-Import', relativePath, false, 'none');
+  return false;
 }
 
 let allowExternalWrites = String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === '1' || String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === 'true';
@@ -151,7 +203,7 @@ app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
   try {
     const { filePath, content, sessionId } = req.body || {};
     const requested = String(filePath || 'temp_saved_file.txt');
-    
+
     let customRoot = rootDir;
     if (sessionId) {
       customRoot = path.join(rootDir, 'server_uploads', String(sessionId));
@@ -280,6 +332,7 @@ app.post('/api/read-file', fileOpsLimiter, async (req, res) => {
 app.post('/api/import-local-repo', async (req, res) => {
   try {
     const requested = String(req.body?.repoPath || '').trim();
+    console.log(`[IMPORT_LOCAL_REPO] Request received. repoPath: "${requested}"`);
     if (!requested) {
       json(res, 400, { error: 'repoPath is required' });
       return;
@@ -315,7 +368,7 @@ app.post('/api/import-local-repo', async (req, res) => {
 
         const fileStat = await fs.stat(absolutePath);
         if (fileStat.size > 25 * 1024 * 1024) { // Ignore gigantic files over 25MB
-          continue; 
+          continue;
         }
 
         const folderNameInZip = path.dirname(relativePath).replace(/\\/g, '/');
@@ -386,9 +439,9 @@ if (verbose) {
   const mask = (v?: string) => v ? `***${String(v).slice(-4)}` : '(none)';
   const geminiEnv = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
   const githubEnv = process.env.GITHUB_TOKEN || process.env.REPOVIEW_GITHUB_TOKEN || '';
-  const devTokenMsg = devToken ? `${mask(devToken)} (masked)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
-  const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (masked)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
-  const githubMsg = githubEnv ? `${mask(githubEnv)} (masked)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
+  const devTokenMsg = devToken ? `${mask(devToken)} (encrypted via dotenvx)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
+  const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (encrypted via dotenvx)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
+  const githubMsg = githubEnv ? `${mask(githubEnv)} (encrypted via dotenvx)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
 
   console.log(`[repoview] Dev token: ${devTokenMsg}`);
   console.log(`[repoview] Gemini API key: ${geminiMsg}`);
@@ -418,13 +471,8 @@ function startServer(startPort: number, attempts = 5) {
         setTimeout(() => startServer(nextPort, attempts - 1), 200);
         return;
       }
-      console.error(`[repoview] to free the port, run (Mac/Linux):
-  sudo lsof -i :${tryPort}
-  kill -9 <PID>
-or (Windows):
-  netstat -ano | findstr :${tryPort}
-  taskkill /PID <PID> /F
-or restart your machine.`);
+      console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
+      console.error(`[repoview] To free the port, run this command (Cross-platform): netstat -ano | findstr :3000 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
       process.exit(1);
     }
 

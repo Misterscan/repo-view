@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import JSZip from 'jszip';
 import { ChunkDoc, ExtendedFile } from '../types';
 import { CONFIG, IGNORED_DIRS, IGNORED_EXTS } from '../lib/constants';
+
 import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
 import { readApiResult } from '../lib/api';
 import { 
@@ -20,13 +21,40 @@ import {
 } from '../lib/db';
 import { useIndexerState } from '../store/appState';
 
-function isIgnored(file: ExtendedFile) {
-  const path = file.webkitRelativePath || file.name;
+function classifyFile(file: ExtendedFile): { ignored: boolean; reason: string } {
+  const filePath = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
   const lowerName = file.name.toLowerCase();
-  if (IGNORED_EXTS.some(ext => lowerName.endsWith(ext))) return true;
-  const pathParts = path.split('/');
-  if (pathParts.some(part => IGNORED_DIRS.includes(part))) return true;
-  return false;
+  
+  if (IGNORED_EXTS.some(ext => lowerName.endsWith(ext.toLowerCase()))) {
+    return { ignored: true, reason: 'extension' };
+  }
+  
+  const pathParts = filePath.split('/').filter(Boolean);
+  for (const part of pathParts) {
+    if (IGNORED_DIRS.includes(part.toLowerCase())) {
+      return { ignored: true, reason: `dir:${part}` };
+    }
+  }
+  
+  return { ignored: false, reason: 'allowed' };
+}
+
+function isIgnored(file: ExtendedFile) {
+  return classifyFile(file).ignored;
+}
+
+async function postIgnoreLogs(files: ExtendedFile[]) {
+  const entries = files.map(f => {
+    const filePath = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
+    const { ignored, reason } = classifyFile(f);
+    return { type: 'Browser-Upload', filePath, result: ignored, reason };
+  });
+  console.log('[IGNORE_CHECK] Browser batch:', entries.length, 'files');
+  fetch('/api/log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries }),
+  }).catch(() => {});
 }
 
 export function useIndexer() {
@@ -121,6 +149,7 @@ export function useIndexer() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploaded = Array.from(e.target.files || []) as ExtendedFile[];
+    void postIgnoreLogs(uploaded);
     const valid = uploaded.filter(f => !isIgnored(f));
     if (valid.length === 0) return;
 
@@ -247,6 +276,10 @@ export function useIndexer() {
       try {
         const zip = new JSZip();
         for (const node of files) {
+          if (isIgnored(node as any)) {
+            console.log(`[FAIL-SAFE] Skipping ignored file during indexer sync: ${node.path}`);
+            continue;
+          }
           const content = await getSessionFileContent(currentSessionId, node.path);
           if (content) {
             zip.file(node.path, content);

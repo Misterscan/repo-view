@@ -10,7 +10,7 @@ import { useAgent } from './hooks/useAgent';
 import { getSessionFileBlob, getSessionFileContent, getSessionFileMetas, createSession, updateSessionServerUploadId } from './lib/db';
 import { getMimeType } from './lib/gemini';
 import { readApiResult } from './lib/api';
-import { IGNORED_DIRS, IGNORED_EXTS } from './lib/constants';
+import { isIgnoredPath, isIgnoredFile } from './lib/constants';
 import { FileNode, GitHubInspection } from './types';
 import { useUIState, useIndexerState } from './store/appState';
 
@@ -21,14 +21,7 @@ type ChangedRepoFile = {
 
 const WELCOME_DISMISSED_KEY = 'repoview.hideWelcome';
 
-function isIgnoredUpload(f: File) {
-  const path = f.webkitRelativePath || f.name;
-  const lowerName = f.name.toLowerCase();
-  if (IGNORED_EXTS.some(ext => lowerName.endsWith(ext))) return true;
-  const pathParts = path.split('/');
-  if (pathParts.some(part => IGNORED_DIRS.includes(part))) return true;
-  return false;
-}
+
 
 function WelcomeScreen({
   onContinue,
@@ -39,7 +32,7 @@ function WelcomeScreen({
   dontShowAgain: boolean;
   onToggleDontShowAgain: (value: boolean) => void;
 }) {
-  const [commits, setCommits] = useState<{sha: string; message: string; date: string; author: string; url: string; files: string[]}[]>([]);
+  const [commits, setCommits] = useState<{ sha: string; message: string; date: string; author: string; url: string; files: string[] }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,7 +41,7 @@ function WelcomeScreen({
         const res = await fetch('https://api.github.com/repos/Misterscan/repo-view/commits?per_page=3');
         if (!res.ok) throw new Error('Failed to fetch');
         const data = await res.json();
-        
+
         if (Array.isArray(data)) {
           const detailedCommits = await Promise.all(data.map(async (c: any) => {
             try {
@@ -95,7 +88,7 @@ function WelcomeScreen({
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="text-[0.72rem] font-black uppercase tracking-[0.32em] text-[var(--accent)]">
-                repoview version 1.3.4
+                repoview version 1.3.5
               </div>
               <h1 className="text-4xl font-black uppercase tracking-tight text-[var(--text-main)] md:text-6xl">
                 Welcome to repoview
@@ -234,12 +227,14 @@ function WorkspaceApp() {
     const filePromises: Promise<{ path: string; name: string; type: string; blob: Blob }>[] = [];
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
+      if (isIgnoredPath(relativePath)) return;
+
       filePromises.push(
-        zipEntry.async('blob').then(b => ({
+        zipEntry.async('blob').then(blob => ({
           path: relativePath,
           name: relativePath.split('/').pop() || '',
-          type: b.type || getMimeType(relativePath.split('/').pop() || ''),
-          blob: b,
+          type: blob.type || getMimeType(relativePath),
+          blob
         }))
       );
     });
@@ -292,11 +287,11 @@ function WorkspaceApp() {
       setSelectedFile(null);
       return;
     }
-    
+
     // Check if it's a known binary type
     const mime = getMimeType(f.path);
     const isBinary = !mime.startsWith('text/') && mime !== 'application/json' && !f.path.endsWith('.md') && !f.path.endsWith('.ts') && !f.path.endsWith('.tsx') && !f.path.endsWith('.js') && !f.path.endsWith('.css');
-    
+
     if (isBinary) {
       const blob = await getSessionFileBlob(currentSessionId, f.path);
       setSelectedFile({ ...f, blob: blob || undefined, content: '' });
@@ -325,7 +320,7 @@ function WorkspaceApp() {
       }
 
       const metas = await getSessionFileMetas(targetSessionId);
-      const clientHashes: Record<string,string> = {};
+      const clientHashes: Record<string, string> = {};
       for (const m of metas) if (m.hash) clientHashes[m.path] = m.hash;
 
       const form = new FormData();
@@ -333,8 +328,8 @@ function WorkspaceApp() {
       form.append('clientHashes', JSON.stringify(clientHashes));
 
       const resp = await fetch('/api/repo/compare', { method: 'POST', body: form });
-  const data = await readApiResult<{ changedFiles?: { path: string; size: number }[] }>(resp, 'Compare failed');
-      
+      const data = await readApiResult<{ changedFiles?: { path: string; size: number }[] }>(resp, 'Compare failed');
+
       // If it's a brand new upload, everything is technically "changed" from the empty state
       if (!data.changedFiles || data.changedFiles.length === 0) {
         alert('No files detected in upload.');
@@ -367,7 +362,7 @@ function WorkspaceApp() {
       // First pass: collect files and try to resolve a folder name from webkitRelativePath
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (isIgnoredUpload(file)) continue;
+        if (isIgnoredFile(file)) continue;
         const relativePath = file.webkitRelativePath || file.name;
         if (!resolvedFolderName && file.webkitRelativePath) {
           const parts = file.webkitRelativePath.split('/');
@@ -383,7 +378,7 @@ function WorkspaceApp() {
       if (!resolvedFolderName) {
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
-          if (isIgnoredUpload(f)) continue;
+          if (isIgnoredFile(f)) continue;
           if (f.webkitRelativePath) {
             const parts = f.webkitRelativePath.split('/');
             if (parts[0]) {
@@ -479,9 +474,9 @@ function WorkspaceApp() {
         githubError={githubError}
         isGitHubLoading={isGitHubLoading}
       />
-      <FileViewer 
-        selectedFile={selectedFile} 
-        onContextualize={handleContextualize} 
+      <FileViewer
+        selectedFile={selectedFile}
+        onContextualize={handleContextualize}
       />
       <ChatInterface
         messages={messages}
@@ -524,7 +519,7 @@ function WorkspaceApp() {
                 if (!currentSessionId || !pendingRepoZip) return;
                 try {
                   const metas = await getSessionFileMetas(currentSessionId);
-                  const clientHashes: Record<string,string> = {};
+                  const clientHashes: Record<string, string> = {};
                   for (const m of metas) if (m.hash) clientHashes[m.path] = m.hash;
 
                   const form = new FormData();
