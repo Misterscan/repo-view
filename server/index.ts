@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 
 import express from 'express';
 import { promises as fs } from 'fs';
@@ -150,7 +151,7 @@ app.post('/api/write-file', fileOpsLimiter, async (req, res) => {
   try {
     const { filePath, content, sessionId } = req.body || {};
     const requested = String(filePath || 'temp_saved_file.txt');
-    
+
     let customRoot = rootDir;
     if (sessionId) {
       customRoot = path.join(rootDir, 'server_uploads', String(sessionId));
@@ -314,7 +315,7 @@ app.post('/api/import-local-repo', async (req, res) => {
 
         const fileStat = await fs.stat(absolutePath);
         if (fileStat.size > 25 * 1024 * 1024) { // Ignore gigantic files over 25MB
-          continue; 
+          continue;
         }
 
         const folderNameInZip = path.dirname(relativePath).replace(/\\/g, '/');
