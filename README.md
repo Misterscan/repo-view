@@ -156,6 +156,11 @@ Install all project dependencies:
 ```bash
 npm install
 ```
+### 3.1 Encrypted API Keys
+Run the following command to encrypt your API keys:
+```bash
+dotenvx encrypt
+```
 
 #### 4. Run the Interface
 Launch the development server. The UI and local API routes now run through the bundled Express server, with Vite attached in middleware mode during development.

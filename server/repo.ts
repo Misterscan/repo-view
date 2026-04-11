@@ -3,7 +3,7 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import path from 'path';
 import { createHash } from 'crypto';
-import { IGNORED_DIRS, IGNORED_EXTS } from '../src/lib/constants';
+import { IGNORED_DIRS, IGNORED_EXTS } from '../src/lib/constants.ts';
 import { promises as fs } from 'fs';
 import rateLimit from 'express-rate-limit';
 
@@ -16,10 +16,19 @@ const repoMutationLimiter = rateLimit({
 });
 
 function isIgnoredPath(p: string) {
-  const lower = p.toLowerCase();
-  if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) return true;
-  const parts = p.split('/');
-  if (parts.some(part => IGNORED_DIRS.includes(part))) return true;
+  const normalized = p.replace(/\\/g, '/');
+  console.log(`[IGNORE_CHECK] (Server-Repo) Checking path: "${p}" -> normalized: "${normalized}"`);
+  const lower = normalized.toLowerCase();
+  if (IGNORED_EXTS.some(ext => lower.endsWith(ext.toLowerCase()))) {
+    console.log(`[IGNORE_CHECK] (Server-Repo) Ignoring path: ${p} (matched extension)`);
+    return true;
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  const matchedPart = parts.find(part => IGNORED_DIRS.includes(part.toLowerCase()));
+  if (matchedPart) {
+    console.log(`[IGNORE_CHECK] (Server-Repo) Ignoring path: ${p} (matched part: "${matchedPart}")`);
+    return true;
+  }
   return false;
 }
 
@@ -95,6 +104,7 @@ export function registerRepoRoutes(app: Express, rootDir: string) {
       for (const entry of entries) {
         if (entry.isDirectory) continue;
         const rel = entry.entryName.replace(/^\/+/, '');
+        console.log(`[COMPARE_LOOP_1] Processing entry: "${rel}"`);
         if (isIgnoredPath(rel)) continue;
         const data = entry.getData();
         const hash = createHash('sha256').update(data).digest('hex');
@@ -106,6 +116,7 @@ export function registerRepoRoutes(app: Express, rootDir: string) {
       for (const entry of entries) {
         if (entry.isDirectory) continue;
         const rel = entry.entryName.replace(/^\/+/, '');
+        console.log(`[COMPARE_LOOP_2] Processing entry: "${rel}"`);
         if (isIgnoredPath(rel)) continue;
         const data = entry.getData();
         const hash = createHash('sha256').update(data).digest('hex');

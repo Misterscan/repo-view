@@ -1,7 +1,7 @@
 import { type Request, type Response, type Express } from 'express';
 import { GoogleGenAI } from '@google/genai';
 
-import { json } from './auth';
+import { json } from './auth.ts';
 
 export function getGeminiClient(geminiApiKey: string) {
   if (!geminiApiKey) {

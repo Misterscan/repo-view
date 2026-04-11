@@ -42,6 +42,7 @@ The server maintains a local `server_uploads/` directory where it persists extra
 ## Environment Notes
 - All `/api/*` routes are rate-limited. File operations and repository mutation endpoints are intentionally capped more aggressively than general API reads.
 - **External writes** (absolute paths outside the repo) are blocked by default for safety. To allow them, set `ALLOW_EXTERNAL_WRITES=1` in the `.env` file (or toggle in the UI). Approved external writes are automatically backed up to `logs/backups/` and logged to `logs/file-writes.log`.
+- **Encrypted API Keys**: The server uses `dotenvx` to encrypt sensitive API keys in the `.env` file. The encrypted values are stored in the `.env.enc` file and are automatically decrypted at runtime.
 - Set `GITHUB_TOKEN` in the root `.env` file if you want the GitHub integration to search private repositories, clone/import private repositories, or fetch GitHub API data for the sidebar.
 - The same token is used for repository search, clone/import, GitHub Actions, pull requests, and issues.
 - Recommended fine-grained token permissions:
