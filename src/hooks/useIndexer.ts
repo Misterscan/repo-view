@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import JSZip from 'jszip';
 import { ChunkDoc, ExtendedFile } from '../types';
-import { CONFIG, IGNORED_DIRS, IGNORED_EXTS } from '../lib/constants';
+import { CONFIG, isIgnoredPath } from '../lib/constants';
 
 import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
 import { readApiResult } from '../lib/api';
@@ -21,33 +21,13 @@ import {
 } from '../lib/db';
 import { useIndexerState } from '../store/appState';
 
-function classifyFile(file: ExtendedFile): { ignored: boolean; reason: string } {
-  const filePath = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
-  const lowerName = file.name.toLowerCase();
-  
-  if (IGNORED_EXTS.some(ext => lowerName.endsWith(ext.toLowerCase()))) {
-    return { ignored: true, reason: 'extension' };
-  }
-  
-  const pathParts = filePath.split('/').filter(Boolean);
-  for (const part of pathParts) {
-    if (IGNORED_DIRS.includes(part.toLowerCase())) {
-      return { ignored: true, reason: `dir:${part}` };
-    }
-  }
-  
-  return { ignored: false, reason: 'allowed' };
-}
-
-function isIgnored(file: ExtendedFile) {
-  return classifyFile(file).ignored;
-}
+// Use isIgnoredPath from constants.ts instead of local classifyFile
 
 async function postIgnoreLogs(files: ExtendedFile[]) {
   const entries = files.map(f => {
     const filePath = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
-    const { ignored, reason } = classifyFile(f);
-    return { type: 'Browser-Upload', filePath, result: ignored, reason };
+    const ignored = isIgnoredPath(filePath);
+    return { type: 'Browser-Upload', filePath, result: ignored, reason: ignored ? 'matched' : 'none' };
   });
   console.log('[IGNORE_CHECK] Browser batch:', entries.length, 'files');
   fetch('/api/log', {
@@ -150,7 +130,7 @@ export function useIndexer() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploaded = Array.from(e.target.files || []) as ExtendedFile[];
     void postIgnoreLogs(uploaded);
-    const valid = uploaded.filter(f => !isIgnored(f));
+    const valid = uploaded.filter(f => !isIgnoredPath(f.webkitRelativePath || f.name));
     if (valid.length === 0) return;
 
     // Create a new session for this upload
@@ -178,7 +158,7 @@ export function useIndexer() {
 
   const handleReupload = async (sessionId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const uploaded = Array.from(e.target.files || []) as ExtendedFile[];
-    const valid = uploaded.filter(f => !isIgnored(f));
+    const valid = uploaded.filter(f => !isIgnoredPath(f.webkitRelativePath || f.name));
     if (valid.length === 0) return;
 
     // Do not create a new session; update existing session files
@@ -226,6 +206,12 @@ export function useIndexer() {
     try {
       for (let i = 0; i < files.length; i++) {
         const fNode = files[i];
+        
+        if (isIgnoredPath(fNode.path)) {
+          console.log(`[INDEXER] Skipping ignored file during indexing: ${fNode.path}`);
+          continue;
+        }
+
         const mime = getMimeType(fNode.name);
         let blobText = "";
         
@@ -245,10 +231,15 @@ export function useIndexer() {
           try {
             // Reconstruct a File for Gemini Upload
             const fileBlob = new File([blobText], fNode.name, { type: geminiMime });
-            const uri = await uploadFileToGemini(fileBlob, geminiMime);
-            newUris.push({ uri, name: fNode.name, mimeType: geminiMime, size: blobText.length });
+            const uri = await exponentialBackoff(() => uploadFileToGemini(fileBlob, geminiMime));
+            const uriRecord = { uri, name: fNode.name, mimeType: geminiMime, size: blobText.length };
+            newUris.push(uriRecord);
+            
+            // Update DB immediately with cumulative results to prevent loss on partial failure
             await updateSessionUris(currentSessionId, [...uploadedUris, ...newUris]);
-          } catch (e) { console.warn("Files API error", e); }
+          } catch (e) { 
+            console.warn(`[INDEXER] Gemini Files API upload failed for ${fNode.name}:`, e); 
+          }
         } else if (alreadyUploaded) {
           newUris.push(alreadyUploaded);
         }
@@ -276,8 +267,8 @@ export function useIndexer() {
       try {
         const zip = new JSZip();
         for (const node of files) {
-          if (isIgnored(node as any)) {
-            console.log(`[FAIL-SAFE] Skipping ignored file during indexer sync: ${node.path}`);
+          if (isIgnoredPath(node.path)) {
+            console.log(`[INDEXER-SYNC] Skipping ignored file: ${node.path}`);
             continue;
           }
           const content = await getSessionFileContent(currentSessionId, node.path);

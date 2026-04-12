@@ -88,7 +88,7 @@ function WelcomeScreen({
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="text-[0.72rem] font-black uppercase tracking-[0.32em] text-[var(--accent)]">
-                repoview version 1.3.5
+                repoview version 1.3.6
               </div>
               <h1 className="text-4xl font-black uppercase tracking-tight text-[var(--text-main)] md:text-6xl">
                 Welcome to repoview
@@ -362,7 +362,10 @@ function WorkspaceApp() {
       // First pass: collect files and try to resolve a folder name from webkitRelativePath
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (isIgnoredFile(file)) continue;
+        if (isIgnoredPath(file.webkitRelativePath || file.name)) {
+          console.log(`[UPLOAD] Skipping ignored file during folder selection: ${file.webkitRelativePath || file.name}`);
+          continue;
+        }
         const relativePath = file.webkitRelativePath || file.name;
         if (!resolvedFolderName && file.webkitRelativePath) {
           const parts = file.webkitRelativePath.split('/');

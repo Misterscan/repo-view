@@ -34,7 +34,10 @@ async function summarizeAndPurge() {
         // Format: 2026-04-11T02:55:54.584Z [repoview] GET /src/App.tsx -> 200 2ms headers={...}
         const match = line.match(/\[repoview\]\s+(GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)\s+->\s+(\d+)\s+(\d+)ms/);
         if (match) {
-            const [_, method, route, status, timeStr] = match;
+            const method = match[1];
+            const route = match[2];
+            const status = match[3];
+            const timeStr = match[4];
             const key = `${method} ${route} -> ${status}`;
             const time = parseInt(timeStr, 10);
 
@@ -47,7 +50,9 @@ async function summarizeAndPurge() {
             // Group typical static assets and components
             const assetMatch = line.match(/\[repoview\]\s+(GET|POST)\s+(\/node_modules\/|\/src\/|.*\.tsx|.*\.ts|.*\.css|.*\.png|.*\.js|.*\.ico).*\s+->\s+(\d+)\s+(\d+)ms/);
             if (assetMatch) {
-                const [_, method, pathPrefix, status, timeStr] = assetMatch;
+                const method = assetMatch[1];
+                const status = assetMatch[3];
+                const timeStr = assetMatch[4];
                 const key = `${method} [Static Assets & Components] -> ${status}`;
                 const time = parseInt(timeStr, 10);
                 if (!summaryData[key]) summaryData[key] = { count: 0, totalTime: 0 };

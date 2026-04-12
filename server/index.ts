@@ -13,7 +13,7 @@ import { setupTerminal } from './terminal.ts';
 import { attachFrontend } from './frontend.ts';
 import { registerRepoRoutes } from './repo.ts';
 import AdmZip from 'adm-zip';
-import { IGNORED_DIRS as IGNORED_DIRS_LIST, IGNORED_EXTS } from '../src/lib/constants.ts';
+import { isIgnoredPath } from '../src/lib/constants.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,7 +82,7 @@ const fileOpsLimiter = rateLimit({
   legacyHeaders: false
 });
 
-const IGNORED_DIRS = new Set(IGNORED_DIRS_LIST);
+// IGNORED_DIRS processed into set elsewhere or replaced by isIgnoredPath
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -136,23 +136,9 @@ app.use('/api', apiLimiter, createVerifyApiAuth(devToken));
 
 
 function shouldIgnoreImportPath(relativePath: string) {
-  const normalized = relativePath.replace(/\\/g, '/');
-  const parts = normalized.split('/').filter(Boolean);
-  const partIgnored = parts.some((part) => IGNORED_DIRS.has(part.toLowerCase()));
-  if (partIgnored) {
-    void logIgnoreDecision('Server-Import', relativePath, true, 'part');
-    return true;
-  }
-
-  const lowerPath = normalized.toLowerCase();
-  const lowerName = parts[parts.length - 1]?.toLowerCase() || lowerPath;
-  const extIgnored = IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
-  if (extIgnored) {
-    void logIgnoreDecision('Server-Import', relativePath, true, 'extension/name');
-    return true;
-  }
-  void logIgnoreDecision('Server-Import', relativePath, false, 'none');
-  return false;
+  const result = isIgnoredPath(relativePath);
+  void logIgnoreDecision('Server-Import', relativePath, result, result ? 'matched' : 'none');
+  return result;
 }
 
 let allowExternalWrites = String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === '1' || String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === 'true';
@@ -456,13 +442,13 @@ if (verbose) {
   setInterval(() => {
     const scriptPath = path.resolve(rootDir, 'scripts', 'summarize-logs.ts');
     const tsxPath = path.resolve(rootDir, 'node_modules', '.bin', 'tsx.cmd');
-    
+
     // Check if the script exists before trying to run it
-    const child = spawn(tsxPath, [scriptPath], { 
-        detached: true, 
-        stdio: 'ignore',
-        windowsHide: true,
-        shell: true
+    const child = spawn(tsxPath, [scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: true
     });
     child.unref();
   }, 10 * 60 * 1000);
@@ -491,12 +477,7 @@ function startServer(startPort: number, attempts = 5) {
         return;
       }
       console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
-      console.error(`[repoview] To free the port, run (Windows):
-  netstat -ano | findstr :3000
-  taskkill /PID <pid> /F
-or (PowerShell):
-  Get-Process -Id <pid> | Stop-Process
-or restart your machine.`);
+      console.error(`[repoview] To free the port, run (Windows): netstat -ano | findstr :3000 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
       process.exit(1);
     }
 

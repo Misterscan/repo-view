@@ -3,7 +3,7 @@ import { Message, ChunkDoc } from '../types';
 import { embedTexts, estimateTokens, countModelTokens, generateModelContent } from '../lib/gemini';
 import { CONFIG } from '../lib/constants';
 import { ThinkingLevel } from '@google/genai';
-import { saveChatHistory, getChatHistory, getSessionFileBlob, getSessions } from '../lib/db';
+import { saveChatHistory, getChatHistory, getSessionFileBlob } from '../lib/db';
 import { useAgentState } from '../store/appState';
 
 function estimatePartTokens(parts: any[]) {
@@ -170,21 +170,7 @@ export function useAgent(
         }
       }
 
-      // 4. Server repository root (for absolute path awareness)
-      const session = await getChatHistory(currentSessionId).then(() => getSessions()).then(ss => ss.find(s => s.id === currentSessionId));
-      const serverId = session?.serverUploadSessionId;
-
-      if (serverId) {
-        const serverSessionIdResponse = await fetch(`/api/repo/session-path/${serverId}`);
-        if (serverSessionIdResponse.ok) {
-          const { path: serverPath } = await serverSessionIdResponse.json();
-          if (serverPath) {
-            currentTurnParts.push({ text: `[SERVER REPOSITORY ROOT]: ${serverPath}` });
-          }
-        }
-      }
-
-      // 5. User query and RAG text context
+      // 4. User query and RAG text context
       const fullPrompt = `[RAG TEXT CONTEXT]\n${ragContext}\n\n[USER QUERY]\n${q}`;
       currentTurnParts.push({ text: fullPrompt });
 
@@ -193,14 +179,12 @@ export function useAgent(
         : 'Grounding is disabled. Do not claim that you performed web search; answer only from the provided repository context and state when external verification is unavailable.';
 
       const systemInstructionText = `# Role & Objective
-                  You are an expert coding agent dedicated to absolute factual accuracy. Your goal is to provide evidence-based answers derived exclusively from active web searches.
+                  You are an expert coding agent named "repoview Agent" dedicated to absolute factual accuracy. Your goal is to provide evidence-based answers derived exclusively from active web searches.
                   Current Date: ${new Date().toISOString()}
                   CRITICAL RULES:
                   # Core Directives
                   Use the provided CODE CONTEXT and ATTACHED FILES to answer.
                   - **File Modifications:** When suggesting code changes that the user can APPLY, you MUST provide the FULL and COMPLETE content of the file. Do not use placeholders or omit existing code, as the 'Apply' feature overwrites the entire target file.
-                  - **Target Paths:** Always use absolute file paths relative to the [SERVER REPOSITORY ROOT] provided in the prompt when suggesting where to apply modifications.
-                  - **Direct Writes:** Your primary mode of operation is to act as a coding agent that can read and write files directly. When the user asks you to modify code, start your code block with a comment containing the full target path: // File: [PATH] or # File: [PATH].
                   - **Date Awareness:** Use the current date as a reference point for all time-sensitive information.
                   - **Grounding & Citations:** ${groundingInstruction}
                   - **Uncertainty:** If current information is unavailable from the provided context, explicitly say so rather than guessing.
@@ -238,15 +222,21 @@ export function useAgent(
     setIsThinking(true);
     setMessages(prev => [...prev, { role: 'user', text: "Please perform a full architectural review of this repository." }]);
 
+    const groundingInstruction = useGrounding
+      ? 'Use Google Search grounding when current external facts are needed, and cite the sources you used.'
+      : 'Grounding is disabled. Do not claim that you performed web search; answer only from the provided repository context and state when external verification is unavailable.';
+
     try {
+      // Map history to Gemini format
       const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
-      const promptText = "Perform a comprehensive technical review of this codebase. Analyze the architecture, key patterns, and potential optimizations.";
+      const promptText = "Perform a comprehensive technical review of this codebase. Analyze the architecture, key patterns, and potential optimizations. Compare the codebase to similar projects or popular websites/applications and suggest improvements if applicable.";
       parts.push({ text: promptText });
-      const systemInstructionText = 'You are a master software architect. Analyze the attached files and provide a deep technical audit.';
+      const systemInstructionText = ` # ROLE \nYou are a master software architect named "repoview Agent".\n# OBJECTIVE\n Analyze the attached files and provide a deep technical audit.\n# GROUNDING INSTRUCTION: ${groundingInstruction}\n# RULES\n - Be concise. - Be accurate. - Be helpful. Return the response in clean markdown format.`;
       const requestConfig = {
         model: selectedModel,
         contents: [{ role: 'user', parts }],
         config: {
+          tools: useGrounding ? [{ googleSearch: {} }] : [],
           temperature,
           thinkingConfig: { thinkingLevel: modelThinkingLevel },
           systemInstruction: {

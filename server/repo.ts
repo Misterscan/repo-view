@@ -3,7 +3,7 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import path from 'path';
 import { createHash } from 'crypto';
-import { IGNORED_DIRS, IGNORED_EXTS } from '../src/lib/constants.ts';
+import { isIgnoredPath } from '../src/lib/constants.ts';
 import { promises as fs } from 'fs';
 import rateLimit from 'express-rate-limit';
 
@@ -15,22 +15,7 @@ const repoMutationLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-function isIgnoredPath(p: string) {
-  const normalized = p.replace(/\\/g, '/');
-  console.log(`[IGNORE_CHECK] (Server-Repo) Checking path: "${p}" -> normalized: "${normalized}"`);
-  const lower = normalized.toLowerCase();
-  if (IGNORED_EXTS.some(ext => lower.endsWith(ext.toLowerCase()))) {
-    console.log(`[IGNORE_CHECK] (Server-Repo) Ignoring path: ${p} (matched extension)`);
-    return true;
-  }
-  const parts = normalized.split('/').filter(Boolean);
-  const matchedPart = parts.find(part => IGNORED_DIRS.includes(part.toLowerCase()));
-  if (matchedPart) {
-    console.log(`[IGNORE_CHECK] (Server-Repo) Ignoring path: ${p} (matched part: "${matchedPart}")`);
-    return true;
-  }
-  return false;
-}
+// use isIgnoredPath from constants.ts
 
 export function registerRepoRoutes(app: Express, rootDir: string) {
   app.delete('/api/repo/upload-session/:sessionId', repoMutationLimiter, async (req: Request, res: Response) => {
@@ -164,7 +149,10 @@ export function registerRepoRoutes(app: Express, rootDir: string) {
         for (const entry of entries) {
           if (entry.isDirectory) continue;
           const rel = entry.entryName.replace(/^\/+/, '');
-          if (isIgnoredPath(rel)) continue;
+          if (isIgnoredPath(rel)) {
+            console.log(`[SERVER-EXTRACT] Skipping ignored entry: ${rel}`);
+            continue;
+          }
           const data = entry.getData();
           const hash = createHash('sha256').update(data).digest('hex');
           files.push({ path: rel, hash, size: data.length });

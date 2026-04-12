@@ -189,6 +189,24 @@ npm run start
 - More sensitive routes, including filesystem operations and repository upload/delete flows, keep stricter per-route limits on top of the general API cap.
 - **Log Maintenance:** The server automatically manages its own logs. Every 10 minutes, a background task condenses `logs/server.log` into a summarized format in `logs/summary.log` and then the raw log is purged to save space. You can also run this manually via `npm run logs:summarize`.
 
+---
+
+- If using the free tier of Gemini API, you will be rate-limited to 15 requests per minute. This is to prevent abuse and ensure fair usage. If you need to increase this limit, please upgrade your API key.
+- You can check your API usage and limits at https://aistudio.google.com/api-keys
+- Google AI Studio provides free API keys for developers to use with their applications with a $300 credit for the first 3 months.
+- To claim this:
+    1. Go to https://aistudio.google.com/api-keys
+    2. Sign in with your Google account
+    3. Click on "Create API key"
+    4. Copy the API key
+    5. Paste it in the .env file as GEMINI_API_KEY
+    6. Go to https://cloud.google.com/console/project
+    7. Click on "Billing" and link your billing account to the project to enable higher usage tiers.
+
+---
+
+
+
 ### Dev: External Writes (Approval & Audit)
 
 For safety, external (absolute) writes are disabled by default. Use the following options to opt in or approve specific paths:
