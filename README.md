@@ -151,9 +151,10 @@ GITHUB_TOKEN="your-github-token-optional"
 
 Notes:
 
-- `GEMINI_API_KEY` is required for the local dev middleware that proxies requests to the Gemini API.
-- `REPOVIEW_DEV_TOKEN` is optional. If omitted, the dev server will generate a token at startup and print it to the console. The token is used to protect local `/api/*` endpoints from unauthorized cross-origin or programmatic access.
-- `GITHUB_TOKEN` is optional. If present, it is used for GitHub repository search, private repository clone/import, and sidebar GitHub API features such as Actions, pull requests, and issues.
+- `GEMINI_API_KEY` is required for the local dev middleware.
+- `REPOVIEW_DEV_TOKEN` is optional protection for local API endpoints.
+- `GITHUB_TOKEN` is optional for GitHub integration features.
+- **OS Overrides:** If any of these keys exist in your OS environment variables, `dotenvx` will skip them from the `.env` file by default. The `npm run dev` and `npm run start` commands use the `--overload` flag to ensure your `.env` settings always take precedence.
 - Local `/api/*` traffic is rate-limited by default. High-impact endpoints such as file writes and repo mutation routes use stricter limits than the general API cap.
 
 #### GitHub Token Setup
@@ -197,7 +198,7 @@ Install all project dependencies:
 npm install
 ```
 
-#### 3.1 Encrypted API Keys
+### 3.1 Encrypted API Keys
 
 Run the following command to encrypt your API keys:
 
@@ -232,6 +233,23 @@ npm run start
 - All `/api/*` routes are protected by the local auth middleware. Same-origin requests are allowed automatically; cross-origin or scripted access must present the development token.
 - All `/api/*` routes are covered by a general rate limiter.
 - More sensitive routes, including filesystem operations and repository upload/delete flows, keep stricter per-route limits on top of the general API cap.
+- **Log Maintenance:** The server automatically manages its own logs. Every 10 minutes, a background task condenses `logs/server.log` into a summarized format in `logs/summary.log` and then the raw log is purged to save space. You can also run this manually via `npm run logs:summarize`.
+
+---
+
+- If using the free tier of Gemini API, you will be rate-limited to 15 requests per minute. This is to prevent abuse and ensure fair usage. If you need to increase this limit, please upgrade your API key.
+- You can check your API usage and limits at https://aistudio.google.com/api-keys
+- Google AI Studio provides free API keys for developers to use with their applications with a $300 credit for the first 3 months.
+- To claim this:
+  1. Go to https://aistudio.google.com/api-keys
+  2. Sign in with your Google account
+  3. Click on "Create API key"
+  4. Copy the API key
+  5. Paste it in the .env file as GEMINI_API_KEY
+  6. Go to https://cloud.google.com/console/project
+  7. Click on "Billing" and link your billing account to the project to enable higher usage tiers.
+
+---
 
 ### Dev: External Writes (Approval & Audit)
 

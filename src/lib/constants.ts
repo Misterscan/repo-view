@@ -21,9 +21,29 @@ export const IGNORED_EXTS = [
 export function isIgnoredPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/');
   const lower = normalized.toLowerCase();
-  if (IGNORED_EXTS.some(ext => lower.endsWith(ext.toLowerCase()))) return true;
+  
+  // 1. Extension/Suffix Check
+  const matchedExt = IGNORED_EXTS.find(ext => {
+    // If it starts with '.', treat as extension
+    if (ext.startsWith('.')) return lower.endsWith(ext.toLowerCase());
+    // Otherwise check for exact segment match or suffix
+    return lower.split('/').some(part => part === ext.toLowerCase());
+  });
+
+  if (matchedExt) {
+    console.log(`[IGNORE_CHECK] (constants) Ignoring path: ${filePath} (matched: "${matchedExt}")`);
+    return true;
+  }
+
+  // 2. Directory Check
   const parts = normalized.split('/').filter(Boolean);
-  return parts.some(part => IGNORED_DIRS.includes(part.toLowerCase()));
+  const matchedDir = parts.find(part => IGNORED_DIRS.includes(part.toLowerCase()));
+  if (matchedDir) {
+    console.log(`[IGNORE_CHECK] (constants) Ignoring path: ${filePath} (matched dir: "${matchedDir}")`);
+    return true;
+  }
+
+  return false;
 }
 
 export function isIgnoredFile(file: File): boolean {

@@ -1,7 +1,7 @@
-
 import express from 'express';
 import { promises as fs } from 'fs';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
@@ -13,7 +13,7 @@ import { setupTerminal } from './terminal.ts';
 import { attachFrontend } from './frontend.ts';
 import { registerRepoRoutes } from './repo.ts';
 import AdmZip from 'adm-zip';
-import { IGNORED_DIRS as IGNORED_DIRS_LIST, IGNORED_EXTS } from '../src/lib/constants.ts';
+import { isIgnoredPath } from '../src/lib/constants.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,7 +82,7 @@ const fileOpsLimiter = rateLimit({
   legacyHeaders: false
 });
 
-const IGNORED_DIRS = new Set(IGNORED_DIRS_LIST);
+// IGNORED_DIRS processed into set elsewhere or replaced by isIgnoredPath
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -136,23 +136,9 @@ app.use('/api', apiLimiter, createVerifyApiAuth(devToken));
 
 
 function shouldIgnoreImportPath(relativePath: string) {
-  const normalized = relativePath.replace(/\\/g, '/');
-  const parts = normalized.split('/').filter(Boolean);
-  const partIgnored = parts.some((part) => IGNORED_DIRS.has(part.toLowerCase()));
-  if (partIgnored) {
-    void logIgnoreDecision('Server-Import', relativePath, true, 'part');
-    return true;
-  }
-
-  const lowerPath = normalized.toLowerCase();
-  const lowerName = parts[parts.length - 1]?.toLowerCase() || lowerPath;
-  const extIgnored = IGNORED_EXTS.some((value) => lowerPath.endsWith(value.toLowerCase()) || lowerName === value.toLowerCase());
-  if (extIgnored) {
-    void logIgnoreDecision('Server-Import', relativePath, true, 'extension/name');
-    return true;
-  }
-  void logIgnoreDecision('Server-Import', relativePath, false, 'none');
-  return false;
+  const result = isIgnoredPath(relativePath);
+  void logIgnoreDecision('Server-Import', relativePath, result, result ? 'matched' : 'none');
+  return result;
 }
 
 let allowExternalWrites = String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === '1' || String(process.env.ALLOW_EXTERNAL_WRITES || '').toLowerCase() === 'true';
@@ -404,6 +390,7 @@ app.get('/api/integrations', (_req, res) => {
     gemini: geminiEnv ? { configured: true, key: mask(geminiEnv) } : { configured: false },
     github: githubEnv ? { configured: true, token: mask(githubEnv) } : { configured: false },
     devToken: devToken ? { configured: true } : { configured: false },
+    externalWrites: process.env.EXTERNAL_WRITE_SECRET ? { configured: true, secret: mask(process.env.EXTERNAL_WRITE_SECRET) } : { configured: false },
   });
 });
 
@@ -442,11 +429,29 @@ if (verbose) {
   const devTokenMsg = devToken ? `${mask(devToken)} (encrypted via dotenvx)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
   const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (encrypted via dotenvx)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
   const githubMsg = githubEnv ? `${mask(githubEnv)} (encrypted via dotenvx)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
+  const extSecretMsg = process.env.EXTERNAL_WRITE_SECRET ? `${mask(process.env.EXTERNAL_WRITE_SECRET)} (encrypted via dotenvx)` : '(none) — set EXTERNAL_WRITE_SECRET for protected file writes';
 
   console.log(`[repoview] Dev token: ${devTokenMsg}`);
   console.log(`[repoview] Gemini API key: ${geminiMsg}`);
   console.log(`[repoview] GitHub token: ${githubMsg}`);
+  console.log(`[repoview] External Write Secret: ${extSecretMsg}`);
+  console.log(`[repoview] Allow External Writes: ${process.env.ALLOW_EXTERNAL_WRITES || 'false'}`);
   console.log(`[repoview] Env: ${process.env.NODE_ENV || (isDev ? 'development' : 'production')}, Port: ${port}`);
+
+  // Background Log Rotation: Check and summarize logs every 10 minutes
+  setInterval(() => {
+    const scriptPath = path.resolve(rootDir, 'scripts', 'summarize-logs.ts');
+    const tsxPath = path.resolve(rootDir, 'node_modules', '.bin', 'tsx.cmd');
+
+    // Check if the script exists before trying to run it
+    const child = spawn(tsxPath, [scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: true
+    });
+    child.unref();
+  }, 10 * 60 * 1000);
 }
 
 app.get('/api/health', (_req, res) => {
@@ -472,7 +477,7 @@ function startServer(startPort: number, attempts = 5) {
         return;
       }
       console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
-      console.error(`[repoview] To free the port, run this command (Cross-platform): netstat -ano | findstr :3000 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
+      console.error(`[repoview] To free the port, run (CMD): netstat -ano | findstr :3000 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
       process.exit(1);
     }
 
