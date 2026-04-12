@@ -1,7 +1,7 @@
-
 import express from 'express';
 import { promises as fs } from 'fs';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
@@ -404,6 +404,7 @@ app.get('/api/integrations', (_req, res) => {
     gemini: geminiEnv ? { configured: true, key: mask(geminiEnv) } : { configured: false },
     github: githubEnv ? { configured: true, token: mask(githubEnv) } : { configured: false },
     devToken: devToken ? { configured: true } : { configured: false },
+    externalWrites: process.env.EXTERNAL_WRITE_SECRET ? { configured: true, secret: mask(process.env.EXTERNAL_WRITE_SECRET) } : { configured: false },
   });
 });
 
@@ -442,11 +443,29 @@ if (verbose) {
   const devTokenMsg = devToken ? `${mask(devToken)} (encrypted via dotenvx)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
   const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (encrypted via dotenvx)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
   const githubMsg = githubEnv ? `${mask(githubEnv)} (encrypted via dotenvx)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
+  const extSecretMsg = process.env.EXTERNAL_WRITE_SECRET ? `${mask(process.env.EXTERNAL_WRITE_SECRET)} (encrypted via dotenvx)` : '(none) — set EXTERNAL_WRITE_SECRET for protected file writes';
 
   console.log(`[repoview] Dev token: ${devTokenMsg}`);
   console.log(`[repoview] Gemini API key: ${geminiMsg}`);
   console.log(`[repoview] GitHub token: ${githubMsg}`);
+  console.log(`[repoview] External Write Secret: ${extSecretMsg}`);
+  console.log(`[repoview] Allow External Writes: ${process.env.ALLOW_EXTERNAL_WRITES || 'false'}`);
   console.log(`[repoview] Env: ${process.env.NODE_ENV || (isDev ? 'development' : 'production')}, Port: ${port}`);
+
+  // Background Log Rotation: Check and summarize logs every 10 minutes
+  setInterval(() => {
+    const scriptPath = path.resolve(rootDir, 'scripts', 'summarize-logs.ts');
+    const tsxPath = path.resolve(rootDir, 'node_modules', '.bin', 'tsx.cmd');
+    
+    // Check if the script exists before trying to run it
+    const child = spawn(tsxPath, [scriptPath], { 
+        detached: true, 
+        stdio: 'ignore',
+        windowsHide: true,
+        shell: true
+    });
+    child.unref();
+  }, 10 * 60 * 1000);
 }
 
 app.get('/api/health', (_req, res) => {
