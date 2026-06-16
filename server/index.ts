@@ -21,7 +21,7 @@ const rootDir = path.resolve(__dirname, '..');
 const distDir = path.resolve(rootDir, 'dist');
 const indexHtmlPath = path.resolve(rootDir, 'index.html');
 const isDev = process.argv.includes('--dev');
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.PORT || 8085);
 
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
 let devToken = process.env.REPOVIEW_DEV_TOKEN || '';
@@ -477,7 +477,7 @@ function startServer(startPort: number, attempts = 5) {
         return;
       }
       console.error(`[repoview] Failed to bind to port ${startPort} after multiple attempts.`);
-      console.error(`[repoview] To free the port, run (CMD): netstat -ano | findstr :3000 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
+      console.error(`[repoview] To free the port, run (CMD): netstat -ano | findstr :8085 taskkill /PID <pid> /F or (PowerShell): Get-Process -Id <pid> | Stop-Process or restart your machine.`);
       process.exit(1);
     }
 

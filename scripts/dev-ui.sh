@@ -51,7 +51,7 @@ echo "Starting dev server: $PM run dev"
 
 # Open browser shortly after starting dev server in background
 if command -v open >/dev/null 2>&1; then
-    (sleep 5 && open http://localhost:3000) &
+    (sleep 5 && open http://localhost:8085) &
 fi
 
 $PM run dev || fail "Dev server failed to start."

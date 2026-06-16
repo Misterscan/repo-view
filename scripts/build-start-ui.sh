@@ -53,7 +53,7 @@ echo "Starting production server: $PM run start"
 
 # Open browser shortly after starting prod server in background
 if command -v open >/dev/null 2>&1; then
-    (sleep 2 && open http://localhost:3000) &
+    (sleep 2 && open http://localhost:8085) &
 fi
 
 export REPOVIEW_VERBOSE=1

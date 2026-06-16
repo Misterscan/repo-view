@@ -216,7 +216,7 @@ npm run dev
 
 #### 5. Access
 
-Open your browser and navigate to `http://localhost:3000`.
+Open your browser and navigate to `http://localhost:8085`.
 Upload your project directory to initialize a new RAG session and begin working.
 
 ### Production-style Local Run

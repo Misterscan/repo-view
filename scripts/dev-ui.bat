@@ -3,7 +3,7 @@
 rem Safe helper to start the React+Vite dev server on Windows
 rem - Installs npm deps if node_modules is missing
 rem - Starts `npm run dev`
-rem - Attempts to open the default browser at http://localhost:3000 after a short delay
+rem - Attempts to open the default browser at http://localhost:8085 after a short delay
 
 setlocal
 pushd %~dp0\..\
@@ -37,7 +37,7 @@ echo Linting code: npm run lint
 call npm run lint || goto :lint_failed
 echo Starting dev server: npm run dev
 rem Open browser shortly after starting dev server in background
-start "" cmd /c "timeout /t 5 >nul & start http://localhost:3000"
+start "" cmd /c "timeout /t 5 >nul & start http://localhost:8085"
 
 call npm run dev
 :install_failed

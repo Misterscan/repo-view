@@ -10,4 +10,4 @@ echo Starting production server: npm run start
 set REPOVIEW_VERBOSE=1
 call npm run start
 rem Open browser shortly after starting prod server in background
-start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"
+start "" cmd /c "timeout /t 2 >nul & start http://localhost:8085"

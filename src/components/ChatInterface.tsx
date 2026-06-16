@@ -406,7 +406,7 @@ export function ChatInterface({
             className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer opacity-60 hover:opacity-100 text-[0.6rem] font-bold uppercase"
           >
             <option value="gemini-3.1-pro-preview">Model: Pro</option>
-            <option value="gemini-3.1-flash-lite-preview">Model: Flash-Lite</option>
+            <option value="gemini-3.1-flash-lite">Model: Flash-Lite</option>
             <option value="gemini-3-flash-preview">Model: Flash</option>
           </select>
         </div>

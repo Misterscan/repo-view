@@ -32,9 +32,9 @@ export function Terminal({ onClose }: TerminalProps) {
     (async () => {
       try {
         await Promise.all([
-          import('xterm/css/xterm.css'),
-          import('xterm').then(mod => { XTermCtor = mod.Terminal || mod.default || mod; }),
-          import('xterm-addon-fit').then(mod => { FitAddonCtor = mod.FitAddon || mod.default || mod; }),
+          import('@xterm/xterm/css/xterm.css'),
+          import('@xterm/xterm').then(mod => { XTermCtor = mod.Terminal || mod.default || mod; }),
+          import('@xterm/addon-fit').then(mod => { FitAddonCtor = mod.FitAddon || mod.default || mod; }),
         ]);
       } catch (e) {
         console.error('Failed to load xterm or addons:', e);

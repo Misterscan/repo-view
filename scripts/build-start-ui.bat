@@ -33,7 +33,7 @@ echo Building production assets: npm run build
 call npm run build || goto :build_failed
 echo Starting production server: npm run start
 rem Open browser shortly after starting prod server
-start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"
+start "" cmd /c "timeout /t 2 >nul & start http://localhost:8085"
 set REPOVIEW_VERBOSE=1
 call npm run start
 goto :eof
