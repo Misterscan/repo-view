@@ -1,4 +1,6 @@
-import { createContext, Dispatch, ReactNode, SetStateAction, useContext, useState } from 'react';
+import { createContext, Dispatch, ReactNode, SetStateAction, useContext, useState, useEffect } from 'react';
+import { MODELS, getModelProvider } from '../../shared/models';
+import { getModelAvailability } from '../lib/models';
 import { ChunkDoc, FileNode, Message } from '../types';
 import { RepoSession } from '../lib/db';
 
@@ -32,8 +34,6 @@ type AgentState = {
   setIsThinking: Dispatch<SetStateAction<boolean>>;
   selectedModel: string;
   setSelectedModel: Dispatch<SetStateAction<string>>;
-  temperaturePreset: 'focused' | 'balanced' | 'creative';
-  setTemperaturePreset: Dispatch<SetStateAction<'focused' | 'balanced' | 'creative'>>;
   thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
   setThinkingLevel: Dispatch<SetStateAction<'minimal' | 'low' | 'medium' | 'high'>>;
   useGrounding: boolean;
@@ -72,8 +72,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   ]);
   const [query, setQuery] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-3.1-pro-preview');
-  const [temperaturePreset, setTemperaturePreset] = useState<'focused' | 'balanced' | 'creative'>('balanced');
+  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  useEffect(() => {
+    let active = true;
+    getModelAvailability().then(({ providers }) => {
+      if (!active) return;
+      setSelectedModel(current => providers[getModelProvider(current)].configured
+        ? current : MODELS.find(model => providers[model.provider].configured)?.id || current);
+    }).catch(() => { /* The chat will display configuration errors when sending. */ });
+    return () => { active = false; };
+  }, []);
   const [thinkingLevel, setThinkingLevel] = useState<'minimal' | 'low' | 'medium' | 'high'>('medium');
   const [useGrounding, setUseGrounding] = useState(true);
 
@@ -111,8 +119,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           setIsThinking,
           selectedModel,
           setSelectedModel,
-          temperaturePreset,
-          setTemperaturePreset,
           thinkingLevel,
           setThinkingLevel,
           useGrounding,

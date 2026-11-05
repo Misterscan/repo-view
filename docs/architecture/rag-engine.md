@@ -9,7 +9,7 @@ flowchart TD
     F --> G[Web Worker: Cosine Similarity]
     D --> G
     G --> H[Top-15 Context Chunks]
-    H --> I[Gemini Pro Model]
+    H --> I[Gemini/OpenAI/Anthropic Model]
 ```
 
 ## High-Level Flow

@@ -390,18 +390,14 @@ async function inspectRepo(rootDir: string, repoPathRaw: string) {
   let remoteUrl = '';
   try {
     remoteUrl = await runGit(topLevel, ['remote', 'get-url', 'origin']);
-  } catch {
-    remoteUrl = '';
-  }
+  } catch {}
 
   let commit = null;
   try {
     const lastCommitRaw = await runGit(topLevel, ['log', '-1', '--pretty=format:%H%n%s%n%an%n%ad']);
     const [hash = '', subject = '', author = '', date = ''] = lastCommitRaw.split(/\r?\n/);
     commit = { hash, shortHash: hash.slice(0, 7), subject, author, date };
-  } catch {
-    commit = null;
-  }
+  } catch {}
 
   const github = parseGitHubRemote(remoteUrl);
   const { workflowRuns, actionsError } = github ? await fetchWorkflowRuns(github) : { workflowRuns: [], actionsError: null };

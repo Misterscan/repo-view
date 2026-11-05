@@ -1,0 +1,14 @@
+{
+  "name": "@repoview/lint-toolchain",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "exports": "./index.js",
+  "dependencies": {
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  },
+  "peerDependencies": {
+    "eslint": "^10.0.0"
+  }
+}

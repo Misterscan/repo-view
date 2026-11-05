@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Message, ChunkDoc } from '../types';
-import { embedTexts, estimateTokens, countModelTokens, generateModelContent } from '../lib/gemini';
-import { CONFIG } from '../lib/constants';
+import { embedTexts, estimateTokens, getMimeType } from '../lib/gemini';
+import { countModelTokens, generateModelContent, getModelAvailability } from '../lib/models';
+import { retrieveByKeywords } from '../lib/retrieval';
+import { getModelProvider, type ModelRequest } from '../../shared/models';
+import { CONFIG, isIgnoredPath } from '../lib/constants';
 import { ThinkingLevel } from '@google/genai';
-import { saveChatHistory, getChatHistory, getSessionFileBlob } from '../lib/db';
+import { saveChatHistory, getChatHistory, getSessionFileBlob, getSessionFiles, getSessionFileContent } from '../lib/db';
 import { useAgentState } from '../store/appState';
 
 function estimatePartTokens(parts: any[]) {
@@ -47,8 +50,6 @@ export function useAgent(
     setIsThinking,
     selectedModel,
     setSelectedModel,
-    temperaturePreset,
-    setTemperaturePreset,
     thinkingLevel,
     setThinkingLevel,
     useGrounding,
@@ -56,6 +57,7 @@ export function useAgent(
   } = useAgentState();
   const [lastRequestTokens, setLastRequestTokens] = useState<number | null>(null);
   const [draftQueryTokens, setDraftQueryTokens] = useState<number>(0);
+  const provider = getModelProvider(selectedModel);
 
   useEffect(() => {
     if (!query) {
@@ -70,11 +72,6 @@ export function useAgent(
     return () => clearTimeout(timer);
   }, [query, selectedModel]);
 
-  const temperature = temperaturePreset === 'focused'
-    ? 0.1
-    : temperaturePreset === 'creative'
-      ? 0.5
-      : 0.3;
 
   const modelThinkingLevel = thinkingLevel === 'minimal'
     ? ThinkingLevel.MINIMAL
@@ -114,21 +111,30 @@ export function useAgent(
     viewModeSetter('chat');
 
     try {
-      const [qVec = []] = await embedTexts(CONFIG.embedModel, [q || (attachments ? `Uploaded ${attachments.length} files` : 'Uploaded files')]);
-
-      // Web Worker for similarity calculation
-      const ragWorker = new Worker(new URL('../workers/rag.worker.ts', import.meta.url), { type: 'module' });
-
-      const relevant = await new Promise<ChunkDoc[]>((resolve) => {
-        ragWorker.onmessage = (e) => resolve(e.data.relevant);
-        ragWorker.postMessage({ qVec, sessionId: currentSessionId, topK: CONFIG.topK });
-      });
-      ragWorker.terminate();
+      const availability = await getModelAvailability();
+      let relevant = retrieveByKeywords(db, q, CONFIG.topK);
+      if (availability.providers.gemini.configured && db.some(doc => doc.vec.length)) {
+        try {
+          const [qVec = []] = await embedTexts(CONFIG.embedModel, [q || 'Uploaded files']);
+          const ragWorker = new Worker(new URL('../workers/rag.worker.ts', import.meta.url), { type: 'module' });
+          try {
+            relevant = await new Promise<ChunkDoc[]>((resolve, reject) => {
+              ragWorker.onmessage = (e) => resolve(e.data.relevant);
+              ragWorker.onerror = () => reject(new Error('Repository search failed.'));
+              ragWorker.postMessage({ qVec, sessionId: currentSessionId, topK: CONFIG.topK });
+            });
+          } finally {
+            ragWorker.terminate();
+          }
+        } catch {
+          // Keep keyword context when embeddings are unavailable or rate limited.
+        }
+      }
 
       const ragContext = relevant.filter(r => !r.isMedia).map(r => r.text).join("\n\n");
       const mediaFiles = relevant.filter(r => r.isMedia);
 
-      // Map history to Gemini format
+      // Keep a common conversation format; the server translates for each provider.
       const historyParts: any[] = messages.flatMap(m => {
         const turnParts: any[] = [{ text: m.text }];
         if (m.attachments) {
@@ -143,7 +149,7 @@ export function useAgent(
       const currentTurnParts: any[] = [];
 
       // 1. Permanent session files (if any)
-      uploadedUris.forEach(f => {
+      if (provider === 'gemini') uploadedUris.forEach(f => {
         currentTurnParts.push({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size });
       });
 
@@ -175,11 +181,11 @@ export function useAgent(
       currentTurnParts.push({ text: fullPrompt });
 
       const groundingInstruction = useGrounding
-        ? 'Use Google Search grounding when current external facts are needed, and cite the sources you used.'
+        ? 'Use the available web search tool when current external facts are needed, and cite the sources you used.'
         : 'Grounding is disabled. Do not claim that you performed web search; answer only from the provided repository context and state when external verification is unavailable.';
 
       const systemInstructionText = `# Role & Objective
-                  You are an expert coding agent named "repoview Agent" dedicated to absolute factual accuracy. Your goal is to provide evidence-based answers derived exclusively from active web searches.
+                  You are an expert coding agent named "repoview Agent" dedicated to factual accuracy. Base repository answers on the provided code context and use web search for external facts when enabled.
                   Current Date: ${new Date().toISOString()}
                   CRITICAL RULES:
                   # Core Directives
@@ -190,7 +196,7 @@ export function useAgent(
                   - **Uncertainty:** If current information is unavailable from the provided context, explicitly say so rather than guessing.
                   Format your responses in clean Markdown.`;
 
-      const requestConfig = {
+      const requestConfig: ModelRequest = {
         model: selectedModel,
         contents: [
           ...historyParts,
@@ -198,7 +204,6 @@ export function useAgent(
         ],
         config: {
           tools: useGrounding ? [{ googleSearch: {} }] : [],
-          temperature,
           thinkingConfig: { thinkingLevel: modelThinkingLevel },
           systemInstruction: { parts: [{ text: systemInstructionText }] }
         }
@@ -218,26 +223,37 @@ export function useAgent(
   };
 
   const startFullReview = async () => {
-    if (uploadedUris.length === 0 || isThinking || !currentSessionId) return;
+    if (isThinking || !currentSessionId) return;
     setIsThinking(true);
     setMessages(prev => [...prev, { role: 'user', text: "Please perform a full architectural review of this repository." }]);
 
     const groundingInstruction = useGrounding
-      ? 'Use Google Search grounding when current external facts are needed, and cite the sources you used.'
+      ? 'Use the available web search tool when current external facts are needed, and cite the sources you used.'
       : 'Grounding is disabled. Do not claim that you performed web search; answer only from the provided repository context and state when external verification is unavailable.';
 
     try {
-      // Map history to Gemini format
-      const parts: any[] = uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }));
+      const parts: any[] = provider === 'gemini' && uploadedUris.length
+        ? uploadedUris.map(f => ({ fileData: { mimeType: f.mimeType, fileUri: f.uri }, _size: f.size }))
+        : [];
+      if (!parts.length) {
+        const files = await getSessionFiles(currentSessionId);
+        for (const file of files) {
+          if (isIgnoredPath(file.path)) continue;
+          const mime = getMimeType(file.name);
+          if (!mime.startsWith('text/') && mime !== 'application/json' && mime !== 'image/svg+xml') continue;
+          const content = await getSessionFileContent(currentSessionId, file.path);
+          if (content) parts.push({ text: `// File: ${file.path}\n${content}` });
+        }
+      }
+      if (!parts.length) throw new Error('Import repository files before starting a full review.');
       const promptText = "Perform a comprehensive technical review of this codebase. Analyze the architecture, key patterns, and potential optimizations. Compare the codebase to similar projects or popular websites/applications and suggest improvements if applicable.";
       parts.push({ text: promptText });
       const systemInstructionText = ` # ROLE \nYou are a master software architect named "repoview Agent".\n# OBJECTIVE\n Analyze the attached files and provide a deep technical audit.\n# GROUNDING INSTRUCTION: ${groundingInstruction}\n# RULES\n - Be concise. - Be accurate. - Be helpful. Return the response in clean markdown format.`;
-      const requestConfig = {
+      const requestConfig: ModelRequest = {
         model: selectedModel,
         contents: [{ role: 'user', parts }],
         config: {
           tools: useGrounding ? [{ googleSearch: {} }] : [],
-          temperature,
           thinkingConfig: { thinkingLevel: modelThinkingLevel },
           systemInstruction: {
             parts: [{ text: systemInstructionText }]
@@ -281,8 +297,6 @@ export function useAgent(
     isThinking,
     selectedModel,
     setSelectedModel,
-    temperaturePreset,
-    setTemperaturePreset,
     thinkingLevel,
     setThinkingLevel,
     draftQueryTokens,

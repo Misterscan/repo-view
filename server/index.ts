@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 
 import { createVerifyApiAuth, json } from './auth.ts';
 import { registerGeminiRoutes } from './gemini.ts';
+import { registerModelRoutes } from './models.ts';
 import { registerGitHubRoutes } from './github.ts';
 import { setupTerminal } from './terminal.ts';
 import { attachFrontend } from './frontend.ts';
@@ -24,6 +25,8 @@ const isDev = process.argv.includes('--dev');
 const port = Number(process.env.PORT || 8085);
 
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+const openaiApiKey = process.env.OPENAI_API_KEY || '';
+const anthropicApiKey = process.env.ANTHROPIC_API_KEY || '';
 let devToken = process.env.REPOVIEW_DEV_TOKEN || '';
 if (!devToken) {
   devToken = Math.random().toString(36).slice(2, 12);
@@ -378,6 +381,7 @@ app.post('/api/import-local-repo', async (req, res) => {
 });
 
 registerGeminiRoutes(app, geminiApiKey);
+registerModelRoutes(app, { gemini: geminiApiKey, openai: openaiApiKey, anthropic: anthropicApiKey });
 registerRepoRoutes(app, rootDir);
 registerGitHubRoutes(app, rootDir);
 
@@ -388,6 +392,8 @@ app.get('/api/integrations', (_req, res) => {
   const githubEnv = process.env.GITHUB_TOKEN || process.env.REPOVIEW_GITHUB_TOKEN || '';
   json(res, 200, {
     gemini: geminiEnv ? { configured: true, key: mask(geminiEnv) } : { configured: false },
+    openai: { configured: Boolean(openaiApiKey) },
+    anthropic: { configured: Boolean(anthropicApiKey) },
     github: githubEnv ? { configured: true, token: mask(githubEnv) } : { configured: false },
     devToken: devToken ? { configured: true } : { configured: false },
     externalWrites: process.env.EXTERNAL_WRITE_SECRET ? { configured: true, secret: mask(process.env.EXTERNAL_WRITE_SECRET) } : { configured: false },
@@ -428,11 +434,15 @@ if (verbose) {
   const githubEnv = process.env.GITHUB_TOKEN || process.env.REPOVIEW_GITHUB_TOKEN || '';
   const devTokenMsg = devToken ? `${mask(devToken)} (encrypted via dotenvx)` : '(none) — set REPOVIEW_DEV_TOKEN to protect /api routes from external access';
   const geminiMsg = geminiEnv ? `${mask(geminiEnv)} (encrypted via dotenvx)` : '(none) — set GEMINI_API_KEY or VITE_GEMINI_API_KEY to enable LLM features';
+  const openaiMsg = openaiApiKey ? `${mask(openaiApiKey)} (encrypted via dotenvx)` : '(none) — set OPENAI_API_KEY to enable OpenAI integration';
+  const anthropicMsg = anthropicApiKey ? `${mask(anthropicApiKey)} (encrypted via dotenvx)` : '(none) — set ANTHROPIC_API_KEY to enable Anthropic integration';
   const githubMsg = githubEnv ? `${mask(githubEnv)} (encrypted via dotenvx)` : '(none) — set GITHUB_TOKEN or REPOVIEW_GITHUB_TOKEN to enable GitHub integration';
   const extSecretMsg = process.env.EXTERNAL_WRITE_SECRET ? `${mask(process.env.EXTERNAL_WRITE_SECRET)} (encrypted via dotenvx)` : '(none) — set EXTERNAL_WRITE_SECRET for protected file writes';
 
   console.log(`[repoview] Dev token: ${devTokenMsg}`);
   console.log(`[repoview] Gemini API key: ${geminiMsg}`);
+  console.log(`[repoview] OpenAI: ${openaiMsg}`);
+  console.log(`[repoview] Anthropic: ${anthropicMsg}`);
   console.log(`[repoview] GitHub token: ${githubMsg}`);
   console.log(`[repoview] External Write Secret: ${extSecretMsg}`);
   console.log(`[repoview] Allow External Writes: ${process.env.ALLOW_EXTERNAL_WRITES || 'false'}`);

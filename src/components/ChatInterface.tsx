@@ -5,6 +5,8 @@ import { Message } from '../types';
 import { readApiError, readApiResult } from '../lib/api';
 import { cn } from '../lib/utils';
 import { getMimeType } from '../lib/gemini';
+import { MODELS, PROVIDERS, PROVIDER_NAMES, type ModelAvailability } from '../../shared/models';
+import { getModelAvailability } from '../lib/models';
 
 type DiffLine = {
   kind: 'same' | 'add' | 'remove';
@@ -70,8 +72,6 @@ interface ChatInterfaceProps {
   isThinking: boolean;
   selectedModel: string;
   setSelectedModel: (m: string) => void;
-  temperaturePreset: 'focused' | 'balanced' | 'creative';
-  setTemperaturePreset: (preset: 'focused' | 'balanced' | 'creative') => void;
   thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
   setThinkingLevel: (level: 'minimal' | 'low' | 'medium' | 'high') => void;
   draftQueryTokens: number;
@@ -248,11 +248,17 @@ const CodeBlock = ({ children, className, sessionId }: { children: any, classNam
 };
 
 export function ChatInterface({
-  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, temperaturePreset, setTemperaturePreset, thinkingLevel, setThinkingLevel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear, currentSessionId
+  messages, query, setQuery, isThinking, selectedModel, setSelectedModel, thinkingLevel, setThinkingLevel, draftQueryTokens, lastRequestTokens, indexState, useGrounding, setUseGrounding, onSend, onDeleteMessage, onClear, currentSessionId
 }: ChatInterfaceProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<{ file: File; data: string }[]>([]);
+  const [availability, setAvailability] = useState<ModelAvailability | null>(null);
+  useEffect(() => {
+    let active = true;
+    getModelAvailability().then(value => { if (active) setAvailability(value); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => { 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
@@ -402,28 +408,23 @@ export function ChatInterface({
             <Bot className="w-3 h-3" /> 
           <select 
             value={selectedModel} 
+            aria-label="AI model"
+            disabled={isThinking}
             onChange={e => setSelectedModel(e.target.value)} 
             className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer opacity-60 hover:opacity-100 text-[0.6rem] font-bold uppercase"
           >
-            <option value="gemini-3.1-pro-preview">Model: Pro</option>
-            <option value="gemini-3.1-flash-lite">Model: Flash-Lite</option>
-            <option value="gemini-3-flash-preview">Model: Flash</option>
+            {PROVIDERS.map(provider => (
+              <optgroup key={provider} label={PROVIDER_NAMES[provider]}>
+                {MODELS.filter(model => model.provider === provider).map(model => (
+                  <option key={model.id} value={model.id} disabled={availability !== null && !availability.providers[provider].configured}>
+                    {model.label}{availability && !availability.providers[provider].configured ? ' (API key needed)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </select>
         </div>
 
-          <div className="flex items-center gap-1.5 opacity-80">
-          <span className="text-[0.55rem] font-bold uppercase opacity-70">Temp</span>
-          <select
-            value={temperaturePreset}
-            onChange={(e) => setTemperaturePreset(e.target.value as 'focused' | 'balanced' | 'creative')}
-            className="bg-transparent border-none text-[var(--accent)] focus:ring-0 cursor-pointer text-[0.6rem] font-bold uppercase"
-            aria-label="Temperature"
-          >
-            <option value="focused">Focused (0.1)</option>
-            <option value="balanced">Balanced (0.3)</option>
-            <option value="creative">Creative (0.5)</option>
-          </select>
-        </div>
         <div className="flex items-center gap-1.5 opacity-80">
           <LucideBrain className="w-3 h-3" />
           <select

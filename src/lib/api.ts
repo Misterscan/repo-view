@@ -42,6 +42,6 @@ export async function readApiError(response: Response, fallbackMessage: string):
     if (error instanceof Error) {
       throw error;
     }
-    throw new Error(fallbackMessage);
+    throw new Error(fallbackMessage, { cause: error });
   }
 }

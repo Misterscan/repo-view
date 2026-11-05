@@ -1,7 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
-import importPlugin from 'eslint-plugin-import';
-import tseslint from 'typescript-eslint';
+import { tseslint } from '@repoview/lint-toolchain';
 
 export default tseslint.config(
   {
@@ -19,12 +18,8 @@ export default tseslint.config(
         ...globals.node,
       },
     },
-    plugins: {
-      import: importPlugin,
-    },
     rules: {
       'no-duplicate-imports': 'error',
-      'import/no-duplicates': 'error',
       'no-empty': ['error', { allowEmptyCatch: true }],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],

@@ -5,6 +5,7 @@ import { CONFIG, isIgnoredPath } from '../lib/constants';
 
 import { chunkText, embedTexts, getMimeType, uploadFileToGemini, exponentialBackoff } from '../lib/gemini';
 import { readApiResult } from '../lib/api';
+import { getModelAvailability } from '../lib/models';
 import { 
   getSessions, 
   getSession,
@@ -204,6 +205,7 @@ export function useIndexer() {
     const newUris: { uri: string, name: string, mimeType: string, size?: number }[] = [];
 
     try {
+      const useEmbeddings = (await getModelAvailability()).providers.gemini.configured;
       for (let i = 0; i < files.length; i++) {
         const fNode = files[i];
         
@@ -227,7 +229,7 @@ export function useIndexer() {
 
         // 1. Upload to Files API (Text only) - Only if not already uploaded
         const alreadyUploaded = uploadedUris.find(u => u.name === fNode.name && u.size === blobText.length);
-        if (blobText && !isMedia && !alreadyUploaded) {
+        if (useEmbeddings && blobText && !isMedia && !alreadyUploaded) {
           try {
             // Reconstruct a File for Gemini Upload
             const fileBlob = new File([blobText], fNode.name, { type: geminiMime });
@@ -248,13 +250,13 @@ export function useIndexer() {
         if (isEmbeddable && blobText) {
           const chunks = chunkText(blobText, CONFIG.chunkSize, fNode.name);
           for (const chunk of chunks) {
-            const [vec = []] = await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [chunk]));
+            const [vec = []] = useEmbeddings ? await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [chunk])) : [[]];
             newDb.push({ text: chunk, vec, file: fNode.path });
           }
         } else if (isMedia) {
           // Index Media Metadata for Search
           const mediaRef = `[MEDIA_CONTENT]: ${fNode.name} in path ${fNode.path}`;
-          const [vec = []] = await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [mediaRef]));
+          const [vec = []] = useEmbeddings ? await exponentialBackoff(() => embedTexts(CONFIG.embedModel, [mediaRef])) : [[]];
           newDb.push({ text: mediaRef, vec, file: fNode.path, isMedia: true, mimeType: mime });
         }
         setIndexProgress(Math.round(((i + 1) / files.length) * 100));

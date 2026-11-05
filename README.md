@@ -141,17 +141,23 @@ Ensure you have **Node.js 20+** installed on your machine. The internal terminal
 
 #### 2. Environment Variables
 
-Create a `.env` file in the root directory and add your Google Gemini API key and (optionally) a development protection token:
+Create a `.env` file in the root directory and configure one or more model providers, plus an optional development protection token:
 
 ```env
 GEMINI_API_KEY="AIzaSy..."
+OPENAI_API_KEY=""
+ANTHROPIC_API_KEY=""
 REPOVIEW_DEV_TOKEN="your-local-dev-token-optional"
 GITHUB_TOKEN="your-github-token-optional"
 ```
 
 Notes:
 
-- `GEMINI_API_KEY` is required for the local dev middleware.
+- Configure at least one of `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`. Restart the server after changing keys. API keys stay on the backend; do not use `VITE_` variables for OpenAI or Anthropic keys.
+- The chat model menu groups Gemini, OpenAI, and Anthropic models. Providers without keys are marked unavailable, and startup selects a configured provider automatically.
+- OpenAI uses the Responses API; Anthropic uses the Messages API. Conversation history, text/image/PDF attachments, thinking effort, web search with citations, and full repository reviews are supported. Minimal thinking maps to low effort for OpenAI and Anthropic. Their displayed token counts are local estimates.
+- Gemini embeddings remain available when `GEMINI_API_KEY` is configured. Without it, indexing and chat use local keyword retrieval, so OpenAI or Anthropic can work independently. Repository files stay in local storage and are sent as context to the selected provider; Gemini file URLs are never forwarded to another provider.
+- Model IDs are defined in `shared/models.ts`. The APIs and payloads follow the [OpenAI text generation guide](https://developers.openai.com/api/docs/guides/text) and [Anthropic Messages API](https://platform.claude.com/docs/en/api/messages/create).
 - `REPOVIEW_DEV_TOKEN` is optional protection for local API endpoints.
 - `GITHUB_TOKEN` is optional for GitHub integration features.
 - **OS Overrides:** If any of these keys exist in your OS environment variables, `dotenvx` will skip them from the `.env` file by default. The `npm run dev` and `npm run start` commands use the `--overload` flag to ensure your `.env` settings always take precedence.

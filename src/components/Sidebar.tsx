@@ -323,7 +323,7 @@ export function Sidebar({
             <div className="repoview-logo-wrapper" aria-hidden>
               <img src="/logo.png" alt="repoview" className="repoview-logo" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} onClick={() => window.open('https://github.com/Misterscan/repo-view', '_blank')} />
             </div>
-            <span>📑repoview👁️</span>
+            <span>repoview</span>
           </div>
           <div className="flex items-center gap-2">
             <button 

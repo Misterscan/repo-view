@@ -1,11 +1,5 @@
 import { readApiError, readApiJson } from './api';
 
-type GenerateContentRequest = {
-  model: string;
-  contents: unknown;
-  config?: unknown;
-};
-
 async function postJson<T>(url: string, payload: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
@@ -39,16 +33,6 @@ export async function embedTexts(model: string, contents: string[]): Promise<num
   });
 
   return (result.embeddings || []).map(embedding => embedding.values || []);
-}
-
-export async function generateModelContent(request: GenerateContentRequest): Promise<string> {
-  const result = await postJson<{ text?: string }>('/api/gemini/generate', request);
-  return result.text || '';
-}
-
-export async function countModelTokens(request: GenerateContentRequest): Promise<number> {
-  const result = await postJson<{ totalTokens?: number }>('/api/gemini/countTokens', request);
-  return result.totalTokens || 0;
 }
 
 export function chunkText(text: string, size: number, name: string) {

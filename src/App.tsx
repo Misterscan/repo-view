@@ -88,7 +88,7 @@ function WelcomeScreen({
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="text-[0.72rem] font-black uppercase tracking-[0.32em] text-[var(--accent)]">
-                repoview version 1.3.6
+                repoview version 1.3.8
               </div>
               <h1 className="text-4xl font-black uppercase tracking-tight text-[var(--text-main)] md:text-6xl">
                 Welcome to repoview
@@ -417,8 +417,6 @@ function WorkspaceApp() {
     isThinking,
     selectedModel,
     setSelectedModel,
-    temperaturePreset,
-    setTemperaturePreset,
     thinkingLevel,
     setThinkingLevel,
     draftQueryTokens,
@@ -488,8 +486,6 @@ function WorkspaceApp() {
         isThinking={isThinking}
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
-        temperaturePreset={temperaturePreset}
-        setTemperaturePreset={setTemperaturePreset}
         thinkingLevel={thinkingLevel}
         setThinkingLevel={setThinkingLevel}
         draftQueryTokens={draftQueryTokens}
